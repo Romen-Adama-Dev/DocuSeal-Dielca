@@ -1,0 +1,8 @@
+<% if ENV['DOCUSEAL_OIDC_ENABLED'] == 'true' %>
+  <div class="divider my-6"><%= t('or') %></div>
+  <%= link_to authentik_oidc_path,
+              class: 'base-button w-full text-center',
+              data: { turbo: false } do %>
+    <%= t('sign_in_with_name_account', name: 'DIELCA') %>
+  <% end %>
+<% end %>

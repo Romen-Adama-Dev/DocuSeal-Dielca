@@ -14,6 +14,9 @@ Rails.application.routes.draw do
   get 'up' => 'rails/health#show'
   get 'manifest' => 'pwa#manifest'
 
+  get 'auth/authentik' => 'authentik_oidc#new', as: :authentik_oidc
+  get 'auth/authentik/callback' => 'authentik_oidc#create', as: :authentik_oidc_callback
+
   devise_for :users, path: '/', only: %i[sessions passwords],
                      controllers: { sessions: 'sessions', passwords: 'passwords' }
 

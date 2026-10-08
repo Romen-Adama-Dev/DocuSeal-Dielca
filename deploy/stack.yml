@@ -7,9 +7,17 @@ services:
       RAILS_MAX_THREADS: "4"
       SIDEKIQ_THREADS: "2"
       WEB_CONCURRENCY: "0"
+      DOCUSEAL_OIDC_ENABLED: "true"
+      DOCUSEAL_OIDC_ISSUER: "https://auth.intra.dielca.com/application/o/docuseal/"
+      DOCUSEAL_OIDC_CLIENT_ID: "docuseal"
+      DOCUSEAL_OIDC_REDIRECT_URI: "https://firmas.intra.dielca.com/auth/authentik/callback"
+      DOCUSEAL_OIDC_ALLOWED_DOMAINS: "dielca.com"
+      DOCUSEAL_OIDC_ALLOWED_GROUPS: "Admins"
     secrets:
       - source: app_secret
         target: docuseal_secret_key_base
+      - source: oidc_client_secret
+        target: docuseal_oidc_client_secret
     volumes:
       - data:/data
     networks:
@@ -50,6 +58,9 @@ secrets:
   app_secret:
     external: true
     name: ${DOCUSEAL_SECRET_NAME:-docuseal_secret_key_base}
+  oidc_client_secret:
+    external: true
+    name: ${DOCUSEAL_OIDC_SECRET_NAME:-docuseal_oidc_client_secret}
 
 networks:
   proxy:
