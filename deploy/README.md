@@ -4,7 +4,8 @@ Plantilla Swarm sin datos de infraestructura ni credenciales. Una réplica SQLit
 fijada al nodo de datos. El volumen local no ofrece failover automático.
 
 Definir fuera de Git `DOCUSEAL_DATA_NODE`, `DOCUSEAL_PROXY_NETWORK`,
-`DOCUSEAL_IMAGE` (tag inmutable o digest) y, si procede, `DOCUSEAL_SECRET_NAME`.
+`DOCUSEAL_IMAGE` (tag inmutable o digest), `DOCUSEAL_SECRET_NAME` y
+`DOCUSEAL_OIDC_SECRET_NAME`.
 Construir desde un commit limpio con `bash scripts/build-image.sh`: el contexto
 solo contiene archivos versionados, evitando empaquetar archivos locales.
 Crear el secreto mediante un canal seguro, sin imprimirlo ni incorporarlo a
@@ -39,7 +40,15 @@ de métricas de negocio ni una dependencia de monitorización al MVP.
 
 ## Acceso
 
-Login de serie. El primer acceso permite crear al administrador: completar este
-paso mediante acceso restringido antes de abrir el portal a la subred. Los grupos
-de Authentik no se sincronizan en el MVP. Invitaciones y recuperación por correo
-necesitan SMTP; configurarlo desde las opciones existentes sin subir secretos.
+El login corporativo usa OIDC Authorization Code con PKCE, `state`, `nonce`,
+validación RS256 por JWKS y alta automática a partir del correo de Authentik.
+DocuSeal no recibe ni almacena la contraseña de Authentik. La configuración
+permite únicamente el dominio `dielca.com` y el grupo `Admins`; el login local se
+conserva como vía de recuperación. El secreto del cliente reside exclusivamente
+en Docker Swarm.
+
+DocuSeal Community solo dispone del rol interno `admin`, con acceso amplio a la
+cuenta. No ampliar `DOCUSEAL_OIDC_ALLOWED_GROUPS` a grupos generales hasta
+implementar permisos internos de menor privilegio. Los firmantes no necesitan
+cuenta: acceden mediante los enlaces de firma. Invitaciones y recuperación por
+correo necesitan SMTP; configurarlo desde las opciones existentes sin subir secretos.

@@ -64,9 +64,11 @@ public/dielca/source.tar.gz`. Los avisos originales del formulario siguen visibl
 ## Producción
 
 El MVP puede usar SQLite y archivos en `/data`, con una sola réplica fijada a un
-nodo y copias consistentes. No necesita PostgreSQL ni servicios externos para
-iniciar sesión. SMTP es opcional para invitaciones y recuperación por correo.
-Authentik queda fuera del MVP: no se habilita SSO/SAML Pro.
+nodo y copias consistentes. No necesita PostgreSQL. SMTP es opcional para
+invitaciones y recuperación por correo. El acceso corporativo se integra con
+Authentik mediante OIDC propio sin activar ni copiar funciones SAML/SSO de la
+edición Pro. El alta es automática para usuarios `@dielca.com` del grupo
+`Admins`; el resto puede firmar sin cuenta mediante enlaces de firma.
 
 La configuración operativa se mantiene en el repositorio privado de
 infraestructura. Antes de publicar: completar
