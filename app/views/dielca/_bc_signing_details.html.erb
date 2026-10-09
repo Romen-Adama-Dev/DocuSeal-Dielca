@@ -7,6 +7,9 @@
     <div><dt class="text-sm opacity-70">NIF/CIF del cliente</dt><dd><%= customer['vat_registration_no'] %></dd></div>
     <div class="md:col-span-2"><dt class="text-sm opacity-70">Dirección</dt><dd><%= [customer['address'], customer['address2'], [customer['post_code'], customer['city']].compact_blank.join(' '), customer['county'], customer['country_code']].compact_blank.join(', ') %></dd></div>
   </dl>
+  <% if record.free_signing? %>
+    <p>Escribe tu nombre y tu DNI/NIF personal antes de firmar.</p>
+  <% else %>
   <dielca-authorized-signer>
     <%= form_with url: dielca_authorized_signer_path, method: :patch, data: { turbo: false }, class: 'space-y-3' do |form| %>
       <%= form.hidden_field :signing_token, value: submitter.slug %>
@@ -28,5 +31,6 @@
     <p class="text-sm">Comprueba tus datos y firma el documento.</p>
   <% else %>
     <p>Selecciona al autorizado para rellenar sus datos y continuar con la firma.</p>
+  <% end %>
   <% end %>
 </section>

@@ -6,6 +6,11 @@ module Dielca
     attribute :customer_data, :string, default: -> { {} }
     serialize :authorized_signers, coder: JSON
     serialize :customer_data, coder: JSON
+    validates :signer_mode, inclusion: { in: %w[authorized free] }
+
+    def free_signing?
+      signer_mode == 'free'
+    end
 
     belongs_to :account
     belongs_to :submission

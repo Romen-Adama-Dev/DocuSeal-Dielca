@@ -4,7 +4,7 @@ module Dielca
   module PdfLayout
     module_function
 
-    def fields(template, document_uuid:, page:, role_uuid:)
+    def fields(template, document_uuid:, page:, role_uuid:, signer_mode: 'authorized')
       raise PdfSubmission::Error.new('LAYOUT_INVALID') unless template.submitters.size == 1
 
       role = template.submitters.first
@@ -30,7 +30,7 @@ module Dielca
         end
 
         { 'uuid' => SecureRandom.uuid, 'name' => name, 'type' => type,
-          'submitter_uuid' => role_uuid, 'required' => true, 'readonly' => type == 'text',
+          'submitter_uuid' => role_uuid, 'required' => true, 'readonly' => type == 'text' && signer_mode == 'authorized',
           'preferences' => {}, 'areas' => areas }
       end
     end

@@ -46,12 +46,12 @@ module Dielca
         preview!(document, doc)
         role_uuid = template.submitters.first['uuid']
         fields = PdfLayout.fields(@layout, document_uuid: document.uuid,
-                                 page: doc.page_count - 1, role_uuid:)
+                                 page: doc.page_count - 1, role_uuid:, signer_mode: @signer_mode)
         template.update!(schema: [{ 'attachment_uuid' => document.uuid, 'name' => @document_name }], fields:)
         name_uuid = fields.find { |f| f['name'] == 'Nombre' }['uuid']
         attrs = {
           'name' => @document_name,
-          'submitters' => [{ 'role' => 'Cliente', 'name' => 'Autorizado por seleccionar',
+          'submitters' => [{ 'role' => 'Cliente', 'name' => (@signer_mode == 'free' ? 'Firmante por identificar' : 'Autorizado por seleccionar'),
                             'external_id' => "bc-#{@request_id}", 'metadata' => @metadata,
                             'values' => {},
                             'send_email' => false, 'send_sms' => false }]
@@ -66,7 +66,7 @@ module Dielca
                           fingerprint: @fingerprint, submission:, submitter: submission.submitters.sole,
                           name_field_uuid: name_uuid,
                           id_field_uuid: fields.find { |f| f['name'] == 'DNI/NIF' }['uuid'],
-                          authorized_signers: @signers, customer_data: @customer)
+                          authorized_signers: @signers, customer_data: @customer, signer_mode: @signer_mode)
       end
       @committed = true
       # Search/webhook jobs may be retried by repeating this idempotent endpoint.
@@ -113,6 +113,10 @@ module Dielca
 
       @customer = validated_customer!
       @signers = validated_signers!
+      @signer_mode = @signers.empty? ? 'free' : 'authorized'
+      if @params[:signer_mode].present? && @params[:signer_mode] != @signer_mode
+        raise Error.new('SIGNER_MODE_INVALID')
+      end
       @metadata = { 'request_id' => @request_id, 'pdf_hash' => @pdf_hash,
                     'order_number' => limited_string!(:order_number, 100),
                     'customer' => @customer['name'], 'customer_vat_registration_no' => @customer['vat_registration_no'],
@@ -144,7 +148,7 @@ module Dielca
 
     def validated_signers!
       signers = JSON.parse(@params[:authorized_signers].to_s)
-      unless signers.is_a?(Array) && signers.size.between?(1, 50)
+      unless signers.is_a?(Array) && signers.size.between?(0, 50)
         raise Error.new('AUTHORIZED_SIGNERS_INVALID')
       end
       specs = { 'id' => 36, 'contact_number' => 20, 'name' => 100, 'job_title' => 50, 'id_document_no' => 30 }

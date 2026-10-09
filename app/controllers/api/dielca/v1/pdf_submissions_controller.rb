@@ -9,7 +9,7 @@ module Api
         def capabilities
           load_layout!
           render json: { version: 1, mode: 'bc_pdf', idempotent: true,
-                         authorized_signer_selection: true, customer_summary: true,
+                         authorized_signer_selection: true, customer_summary: true, free_signing: true,
                          layout_template_id: @layout.id, max_bytes: ::Dielca::PdfSubmission::MAX_BYTES,
                          max_pages: ::Dielca::PdfSubmission::MAX_PAGES }
         end
@@ -65,7 +65,7 @@ module Api
           unless request.headers['X-Auth-Token'].present? && configured_user == current_user.id.to_s
             raise CanCan::AccessDenied
           end
-          required_columns = %w[authorized_signers customer_data selected_signer_id id_field_uuid]
+          required_columns = %w[authorized_signers customer_data selected_signer_id id_field_uuid signer_mode]
           unless ::Dielca::PdfImport.table_exists? &&
                  (required_columns - ::Dielca::PdfImport.column_names).empty?
             raise ::Dielca::PdfSubmission::Error.new('IMPORT_MIGRATION_REQUIRED', :service_unavailable)

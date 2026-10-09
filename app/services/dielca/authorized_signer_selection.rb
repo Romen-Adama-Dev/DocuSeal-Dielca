@@ -7,6 +7,7 @@ module Dielca
     def select!(submitter, person_id)
       submitter.with_lock do
         record = PdfImport.find_by!(submission_id: submitter.submission_id, submitter_id: submitter.id)
+        raise Submitters::SubmitValues::ValidationError, 'Esta firma requiere datos escritos.' if record.free_signing?
         validate_open!(submitter)
         person = record.authorized_signers.find { |s| s['id'] == person_id }
         raise Submitters::SubmitValues::ValidationError, 'Selecciona un autorizado de este cliente.' unless person
@@ -34,6 +35,16 @@ module Dielca
     end
 
     def validate_identity!(record, submitter)
+      if record.free_signing?
+        [[record.name_field_uuid, 100, 'Nombre obligatorio'],
+         [record.id_field_uuid, 30, 'DNI/NIF obligatorio']].each do |uuid, max_length, message|
+          value = submitter.values[uuid]
+          unless value.is_a?(String) && value.strip.present? && value.length <= max_length && !value.include?("\0")
+            raise Submitters::SubmitValues::ValidationError, message
+          end
+        end
+        return
+      end
       person = record.authorized_signers.find { |s| s['id'] == record.selected_signer_id }
       unless person && submitter.values[record.name_field_uuid] == person['name'] &&
              submitter.values[record.id_field_uuid] == person['id_document_no']

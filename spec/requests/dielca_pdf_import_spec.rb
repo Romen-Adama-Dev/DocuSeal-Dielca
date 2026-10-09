@@ -60,7 +60,7 @@ RSpec.describe 'DIELCA original BC PDF API' do
   it 'advertises idempotent PDF import with the allowed layout' do
     get '/api/dielca/v1/pdf_import_capabilities', headers:, params: { layout_template_id: layout.id }
     expect(response).to have_http_status(:ok)
-    expect(response.parsed_body).to include('idempotent' => true, 'mode' => 'bc_pdf', 'version' => 1)
+    expect(response.parsed_body).to include('idempotent' => true, 'mode' => 'bc_pdf', 'version' => 1, 'free_signing' => true)
   end
 
   it 'keeps the original bytes, creates readonly identity fields and never sends invitations' do
@@ -256,6 +256,73 @@ RSpec.describe 'DIELCA original BC PDF API' do
     expect(record.submitter.name).to eq(signers.first[:name])
     expect(record.submitter.values[record.id_field_uuid]).to eq(signers.first[:id_document_no])
     expect(record.submission.reload.completed_at).to be_present
+  end
+
+  context 'when BC returns no authorized people' do
+    let(:signers) { [] }
+
+    it 'filters typed identity values from Rails parameter logs' do
+      filter = ActiveSupport::ParameterFilter.new(Rails.application.config.filter_parameters)
+      params = { 'values' => { 'name-uuid' => 'Persona ficticia', 'id-uuid' => 'ID personal ficticio' } }
+      expect(filter.filter(params)['values']).to eq('[FILTERED]')
+    end
+
+    it 'creates blank editable required identity fields and shows no dropdown' do
+      import(signer_mode: 'free', signer_name: 'Texto que no debe precargarse')
+      expect(response).to have_http_status(:created)
+      record = Dielca::PdfImport.find_by!(account:, request_id:)
+      expect(record.signer_mode).to eq('free')
+      expect(record.submitter.values).to be_empty
+      fields = record.submission.template.fields.select { |f| f['type'] == 'text' }
+      expect(fields).to all(include('readonly' => false, 'required' => true))
+      get submit_form_path(slug: record.submitter.slug)
+      expect(response).to have_http_status(:ok)
+      expect(response.body).to include('<submission-form', 'Datos del cliente', 'DNI/NIF personal')
+      expect(response.body).not_to include('<dielca-authorized-signer', 'Persona autorizada que firma')
+    end
+
+    it 'completes with the name and personal DNI typed by the signer' do
+      import(signer_mode: 'free')
+      record = Dielca::PdfImport.find_by!(account:, request_id:)
+      signature_uuid = record.submission.template.fields.find { |f| f['type'] == 'signature' }['uuid']
+      put submit_form_path(slug: record.submitter.slug), params: {
+        completed: 'true', values: { record.name_field_uuid => 'Persona presente ficticia',
+                                    record.id_field_uuid => 'ID personal ficticio', signature_uuid => 'test-signature' }
+      }
+      expect(response).to have_http_status(:ok)
+      expect(record.submitter.reload.completed_at).to be_present
+      expect(record.submitter.name).to eq('Persona presente ficticia')
+      expect(record.submitter.values[record.id_field_uuid]).to eq('ID personal ficticio')
+      expect(record.submitter.values[record.id_field_uuid]).not_to eq(customer_data[:vat_registration_no])
+    end
+
+    it 'rejects completion without a personal DNI' do
+      import(signer_mode: 'free')
+      record = Dielca::PdfImport.find_by!(account:, request_id:)
+      put submit_form_path(slug: record.submitter.slug), params: {
+        completed: 'true', values: { record.name_field_uuid => 'Persona ficticia' }
+      }
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(record.submitter.reload.completed_at).to be_nil
+      expect(record.submitter.values[record.id_field_uuid]).to be_blank
+    end
+
+    it 'never replaces a free import when an authorized list is later supplied' do
+      import(signer_mode: 'free')
+      record = Dielca::PdfImport.find_by!(account:, request_id:)
+      person = { id: SecureRandom.uuid, contact_number: 'DEMO-NEW', name: 'Persona ficticia',
+                 job_title: '', id_document_no: 'ID ficticio' }
+      expect { import(authorized_signers: [person].to_json, signer_mode: 'authorized') }.not_to change(Submission, :count)
+      expect(response).to have_http_status(:conflict)
+      expect(record.reload.signer_mode).to eq('free')
+      expect(record.authorized_signers).to be_empty
+    end
+
+    it 'rejects an inconsistent explicit authorized mode' do
+      import(signer_mode: 'authorized')
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(response.parsed_body.dig('error', 'code')).to eq('SIGNER_MODE_INVALID')
+    end
   end
 
   it 'returns the selected identity only to the technical API user' do

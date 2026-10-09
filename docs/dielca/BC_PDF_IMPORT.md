@@ -121,3 +121,28 @@ Pendientes carrera concurrente real, reinicio abrupto, rotación/landscape y
 verificación final del PDF firmado/auditoría. El importador activo pasa capacidades y el diseño cumple el contrato.
 La API signatureAuthorizedSigners de BC sigue devolviendo 404; el conector espera
 sin reservar solicitudes. Las pruebas completas requieren publicar esa extensión.
+
+## Cambio local: firma libre para clientes sin autorizados
+
+Pendiente de revisión/despliegue, no aplicado al servicio actual. No requiere
+cambiar las acciones BC publicadas. El multipart admite authorized_signers=[]:
+crea signer_mode=free; lista no vacía crea signer_mode=authorized. signer_mode
+opcional debe coincidir con la lista si se envía. El snapshot/lista fija el modo,
+se almacena en dielca_pdf_imports y no cambia después. La huella incluye la lista;
+no se permite pasar de free a authorized reutilizando requestId.
+
+En free: Nombre y DNI/NIF vacíos, editables, obligatorios; no hay desplegable y el
+formulario de firma aparece directamente. La persona escribe ambos y firma.
+Validación de finalización: nombre hasta 100 y DNI hasta 30 caracteres, strings
+no vacíos, sin NUL. SignedIdentity sincroniza el nombre escrito antes de completar.
+No se precarga el NIF de la empresa. En authorized se conserva el flujo previo.
+
+Nueva migración 20261009122000: signer_mode, default authorized para los envíos
+anteriores. Capacidades anuncia free_signing=true y comprueba esa columna. Rails
+filtra values para evitar nombres/DNI en los logs de parámetros. Revisar y activar
+portal y conector como una actualización compatible; no ejecutado en este cambio.
+
+Verificación del cambio: 37 specs del importador/servicios y 33 regresiones API/OIDC
+pasan en contenedor aislado, sin red, puertos, mounts de producción ni credenciales.
+Se mantienen 2 pruebas JavaScript del desplegable. Falta prueba humana posterior
+al despliegue revisado con OFV26/102186 y seguimiento markSigned en BC.
