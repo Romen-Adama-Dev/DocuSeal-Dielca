@@ -27,6 +27,12 @@ Rails.application.routes.draw do
   end
 
   namespace :api, defaults: { format: :json } do
+    namespace :dielca do
+      namespace :v1 do
+        get 'pdf_import_capabilities', to: 'pdf_submissions#capabilities'
+        post 'submissions_from_pdf', to: 'pdf_submissions#create'
+      end
+    end
     resource :user, only: %i[show]
     resources :attachments, only: %i[create]
     resources :submitter_email_clicks, only: %i[create]
