@@ -9,6 +9,8 @@ Rails.application.routes.draw do
     end
   end
 
+  patch '/dielca/signing/authorized_signer', to: 'dielca/authorized_signers#update', as: :dielca_authorized_signer
+
   root 'dashboard#index'
 
   get 'up' => 'rails/health#show'
@@ -31,6 +33,7 @@ Rails.application.routes.draw do
       namespace :v1 do
         get 'pdf_import_capabilities', to: 'pdf_submissions#capabilities'
         post 'submissions_from_pdf', to: 'pdf_submissions#create'
+        get 'pdf_imports/:request_id', to: 'pdf_submissions#selection'
       end
     end
     resource :user, only: %i[show]

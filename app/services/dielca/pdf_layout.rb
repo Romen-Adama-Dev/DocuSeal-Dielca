@@ -30,7 +30,7 @@ module Dielca
         end
 
         { 'uuid' => SecureRandom.uuid, 'name' => name, 'type' => type,
-          'submitter_uuid' => role_uuid, 'required' => true, 'readonly' => false,
+          'submitter_uuid' => role_uuid, 'required' => true, 'readonly' => type == 'text',
           'preferences' => {}, 'areas' => areas }
       end
     end

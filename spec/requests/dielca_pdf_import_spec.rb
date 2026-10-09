@@ -6,6 +6,17 @@ RSpec.describe 'DIELCA original BC PDF API' do
   let(:layout) { create(:template, account:, author:, only_field_types: %w[text signature]) }
   let(:request_id) { '00000000-0000-4000-8000-000000000001' }
   let(:bytes) { Rails.root.join('spec/fixtures/sample-document.pdf').binread }
+  let(:customer_data) do
+    { id: '00000000-0000-4000-8000-000000000003', number: 'CLI-DEMO', name: 'Cliente ficticio',
+      vat_registration_no: 'NIF empresa ficticio', address: 'Calle ficticia 1', city: 'Ciudad ficticia',
+      post_code: '00000', address2: '', county: '', country_code: 'ES' }
+  end
+  let(:signers) do
+    [{ id: '00000000-0000-4000-8000-000000000004', contact_number: 'DEMO-1',
+       name: 'Persona ficticia Uno', job_title: 'Cargo ficticio', id_document_no: 'ID persona Uno' },
+     { id: '00000000-0000-4000-8000-000000000005', contact_number: 'DEMO-2',
+       name: 'Persona ficticia Dos', job_title: 'Cargo ficticio', id_document_no: 'ID persona Dos' }]
+  end
   let(:headers) { { 'X-Auth-Token' => author.access_token.token } }
 
   around do |example|
@@ -39,6 +50,7 @@ RSpec.describe 'DIELCA original BC PDF API' do
       request_id:, layout_template_id: layout.id.to_s,
       pdf: upload, pdf_sha256: Digest::SHA256.hexdigest(bytes),
       document_name: 'Pedido ficticio', order_number: 'PED-DEMO', customer_name: 'Cliente ficticio',
+      customer: customer_data.to_json, authorized_signers: signers.to_json,
       signer_name: '', send_email: 'false', send_sms: 'false'
     }.merge(overrides).merge(changes)
   ensure
@@ -51,7 +63,7 @@ RSpec.describe 'DIELCA original BC PDF API' do
     expect(response.parsed_body).to include('idempotent' => true, 'mode' => 'bc_pdf', 'version' => 1)
   end
 
-  it 'keeps the original bytes, creates required editable fields and never sends invitations' do
+  it 'keeps the original bytes, creates readonly identity fields and never sends invitations' do
     expect(Submissions).not_to receive(:send_signature_requests)
     import
     expect(response).to have_http_status(:created)
@@ -63,7 +75,9 @@ RSpec.describe 'DIELCA original BC PDF API' do
     expect(record.submitter.preferences).to include('send_email' => false, 'send_sms' => false)
     fields = record.submission.template.fields
     expect(fields.map { |f| f['name'] }).to eq(['Nombre', 'DNI/NIF', 'Firma'])
-    expect(fields).to all(include('required' => true, 'readonly' => false))
+    expect(fields).to all(include('required' => true))
+    expect(fields.select { |f| f['type'] == 'text' }).to all(include('readonly' => true))
+    expect(fields.find { |f| f['type'] == 'signature' }['readonly']).to be(false)
     expect(record.submitter.values).to be_empty
     expect(record.submission.template.shared_link).to be(false)
     expect(record.submission.template.template_accesses.pluck(:user_id)).to eq([author.id])
@@ -77,9 +91,9 @@ RSpec.describe 'DIELCA original BC PDF API' do
     expect(response.parsed_body.slice('submission_id', 'submitter_id')).to eq(first)
   end
 
-  it 'rejects reuse of a request with a different signer' do
+  it 'rejects reuse of a request with a different authorization snapshot' do
     import
-    expect { import(signer_name: 'Otra persona ficticia') }.not_to change(Submission, :count)
+    expect { import(authorized_signers: [signers.first.merge(name: 'Otra persona ficticia')].to_json) }.not_to change(Submission, :count)
     expect(response).to have_http_status(:conflict)
     expect(response.parsed_body.dig('error', 'code')).to eq('IDEMPOTENCY_CONFLICT')
   end
@@ -128,6 +142,7 @@ RSpec.describe 'DIELCA original BC PDF API' do
   end
 
   it 'rolls back records and deletes new storage objects after a rendering failure' do
+    expect_any_instance_of(ActiveStorage::Blob).to receive(:delete).once.and_call_original
     allow_any_instance_of(Dielca::PdfSubmission).to receive(:preview!).and_raise('private details')
     expect { import }.not_to change(Submission, :count)
     expect(Dielca::PdfImport.where(account:, request_id:)).to be_empty
@@ -138,10 +153,119 @@ RSpec.describe 'DIELCA original BC PDF API' do
     expect(response).to have_http_status(:created)
   end
 
-  it 'preloads an authorized name as an editable value' do
-    import(signer_name: 'Persona ficticia')
+  it 'preserves committed originals when indexing fails and recovers them on replay' do
+    allow(SearchEntries).to receive(:enqueue_reindex).and_raise(ActiveRecord::RecordNotUnique)
+    import
+    expect(response).to have_http_status(:service_unavailable)
     record = Dielca::PdfImport.find_by!(account:, request_id:)
-    expect(record.submitter.values[record.name_field_uuid]).to eq('Persona ficticia')
+    expect(record.submission.template.documents.first.download).to eq(bytes)
+    allow(SearchEntries).to receive(:enqueue_reindex).and_call_original
+    expect { import }.not_to change(Submission, :count)
+    expect(response).to have_http_status(:created)
+    expect(response.parsed_body['submission_id']).to eq(record.submission_id)
+  end
+
+  def select_person(record, person_id = signers.first[:id])
+    patch '/dielca/signing/authorized_signer', params: {
+      signing_token: record.submitter.slug, authorized_signer_id: person_id
+    }, headers: { 'Accept' => 'application/json' }
+  end
+
+  it 'fills name and identity document from the selected authorized person' do
+    import
+    record = Dielca::PdfImport.find_by!(account:, request_id:)
+    select_person(record)
+    expect(response).to have_http_status(:ok)
+    record.reload
+    expect(record.selected_signer_id).to eq(signers.first[:id])
+    expect(record.submitter.reload.values[record.name_field_uuid]).to eq(signers.first[:name])
+    expect(record.submitter.values[record.id_field_uuid]).to eq(signers.first[:id_document_no])
+    expect(record.submitter.name).to eq(signers.first[:name])
+    expect(record.submitter.completed_at).to be_nil
+  end
+
+  it 'displays customer information and the authorized-person dropdown before signing' do
+    import
+    record = Dielca::PdfImport.find_by!(account:, request_id:)
+    get submit_form_path(slug: record.submitter.slug)
+    expect(response).to have_http_status(:ok)
+    expect(response.body).to include('Datos del cliente', 'Cliente ficticio', 'NIF empresa ficticio')
+    expect(response.body).to include('Persona autorizada que firma', 'Persona ficticia Uno', 'Persona ficticia Dos')
+    expect(response.body).not_to include('<submission-form')
+  end
+
+  it 'shows signing only after selection and keeps the personal DNI separate from customer NIF' do
+    import
+    record = Dielca::PdfImport.find_by!(account:, request_id:)
+    select_person(record)
+    get submit_form_path(slug: record.submitter.slug)
+    expect(response.body).to include('<submission-form', 'ID persona Uno', 'NIF empresa ficticio')
+    expect(response.body).to include('data-reuse-signature="false"')
+  end
+
+  it 'does not allow selection of a person outside this customer snapshot' do
+    import
+    record = Dielca::PdfImport.find_by!(account:, request_id:)
+    select_person(record, SecureRandom.uuid)
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(record.reload.selected_signer_id).to be_nil
+  end
+
+  it 'clears an unfinished signature when switching to another person' do
+    import
+    record = Dielca::PdfImport.find_by!(account:, request_id:)
+    select_person(record)
+    signature_uuid = record.submission.template.fields.find { |f| f['type'] == 'signature' }['uuid']
+    record.submitter.reload.update!(values: record.submitter.values.merge(signature_uuid => 'old-drawing'))
+    select_person(record, signers.last[:id])
+    expect(response).to have_http_status(:ok)
+    expect(record.submitter.reload.values).not_to have_key(signature_uuid)
+    expect(record.submitter.values[record.name_field_uuid]).to eq(signers.last[:name])
+  end
+
+  it 'refuses to change the signer of an already completed form' do
+    import
+    record = Dielca::PdfImport.find_by!(account:, request_id:)
+    select_person(record)
+    record.submitter.reload.update!(completed_at: Time.current)
+    select_person(record, signers.last[:id])
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(record.reload.selected_signer_id).to eq(signers.first[:id])
+  end
+
+  it 'rejects forged manual identity instead of a dropdown selection' do
+    import
+    record = Dielca::PdfImport.find_by!(account:, request_id:)
+    put submit_form_path(slug: record.submitter.slug), params: {
+      completed: 'true', values: { record.name_field_uuid => 'Inventado', record.id_field_uuid => 'Inventado' }
+    }
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(record.submitter.reload.completed_at).to be_nil
+  end
+
+  it 'completes the form after selection without resubmitting readonly identity fields' do
+    import
+    record = Dielca::PdfImport.find_by!(account:, request_id:)
+    select_person(record)
+    signature_uuid = record.submission.template.fields.find { |f| f['type'] == 'signature' }['uuid']
+    put submit_form_path(slug: record.submitter.slug), params: {
+      completed: 'true', values: { signature_uuid => 'test-signature' }
+    }
+    expect(response).to have_http_status(:ok)
+    expect(record.submitter.reload.completed_at).to be_present
+    expect(record.submitter.name).to eq(signers.first[:name])
+    expect(record.submitter.values[record.id_field_uuid]).to eq(signers.first[:id_document_no])
+    expect(record.submission.reload.completed_at).to be_present
+  end
+
+  it 'returns the selected identity only to the technical API user' do
+    import
+    record = Dielca::PdfImport.find_by!(account:, request_id:)
+    select_person(record)
+    get "/api/dielca/v1/pdf_imports/#{request_id}", headers: headers
+    expect(response.parsed_body).to include('selected_signer_id' => signers.first[:id],
+                                           'signer_name' => signers.first[:name],
+                                           'signer_id_document_no' => signers.first[:id_document_no])
   end
 
   context 'with more than sixteen pages' do

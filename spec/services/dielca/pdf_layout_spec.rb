@@ -12,7 +12,7 @@ RSpec.describe Dielca::PdfLayout do
 
   it 'uses approved coordinates on the new final page and drops defaults' do
     result = described_class.fields(layout, document_uuid: 'new-document', page: 16, role_uuid: 'new-role')
-    expect(result).to all(include('submitter_uuid' => 'new-role', 'required' => true, 'readonly' => false))
+    expect(result).to all(include('submitter_uuid' => 'new-role', 'required' => true))
     expect(result.flat_map { |f| f['areas'] }).to all(include('page' => 16, 'attachment_uuid' => 'new-document'))
     expect(result).to all(satisfy { |f| !f.key?('default_value') })
   end

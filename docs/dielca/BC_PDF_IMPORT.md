@@ -6,7 +6,8 @@ No se ha migrado SQLite de producción ni cambiado imagen, servicios o volúmene
 ## Contrato
 
 `GET /api/dielca/v1/pdf_import_capabilities?layout_template_id=<id>` anuncia
-version=1, mode=bc_pdf, idempotent=true y límites si la integración está configurada.
+version=1, mode=bc_pdf, idempotent=true, authorized_signer_selection=true,
+customer_summary=true y límites si la integración está configurada.
 Requiere X-Auth-Token del usuario técnico; no acepta sesión como alternativa.
 
 `POST /api/dielca/v1/submissions_from_pdf`, multipart, mismos permisos. Parámetros:
@@ -16,7 +17,9 @@ Requiere X-Auth-Token del usuario técnico; no acepta sesión como alternativa.
 - pdf_sha256: SHA-256 hexadecimal en minúsculas de los bytes originales.
 - layout_template_id: ID de diseño aprobado en la configuración del servidor.
 - document_name: texto obligatorio hasta 200 caracteres.
-- signer_name: texto opcional hasta 200 caracteres, precarga editable de Nombre.
+- signer_name: parámetro legado sin precarga; la selección se hace en el portal.
+- customer: JSON con id/number/name/vat_registration_no/address/address2/post_code/city/county/country_code.
+- authorized_signers: JSON de 1 a 50 autorizados con id/contact_number/name/job_title/id_document_no; IDs únicos y datos personales completos.
 - order_number: texto opcional hasta 100 caracteres.
 - customer_name: texto opcional hasta 200 caracteres.
 - send_email y send_sms: ambos textos multipart `false` obligatorios.
@@ -40,7 +43,8 @@ Metadata estándar sha256 sigue en Base64 URL-safe; bc_pdf_sha256 es hexadecimal
 La plantilla aprobada tiene un único rol y exactamente Nombre(text), DNI/NIF(text)
 y Firma(signature), cada uno con áreas normalizadas válidas. Solo se copian sus
 posiciones a la última página del original; no valores, condiciones o defaults.
-La firma se exige a una persona y los campos Nombre/DNI son obligatorios/editables.
+Nombre/DNI son obligatorios y de solo lectura, rellenados desde el autorizado.
+Firma sigue editable para la persona. El NIF del cliente se muestra por separado.
 Confirmar en la revisión que no cubren totales/texto del documento de BC, incluidos
 landscape/rotación. El endpoint no puede deducir zonas libres automáticamente.
 
@@ -50,17 +54,28 @@ No se altera la plantilla de diseño. No hay envío de invitaciones ni contactos
 email/SMS almacenados. Los documentos/resultados/auditoría se generan por el flujo
 normal de DocuSeal cuando firma una persona.
 
-El módulo propio SignedIdentity se inserta antes de assign_completed_attributes
-de Submitters::SubmitValues y únicamente actúa sobre envíos registrados en
-Dielca::PdfImport. Sincroniza el nombre escrito antes de defaults/sellos y
-procesamiento de finalización. Las solicitudes upstream conservan su comportamiento.
-No afirma que la escritura del DNI verifique identidad.
+La pantalla muestra los datos de cliente y un desplegable de autorizados. No
+muestra el formulario de firma hasta seleccionar uno. `PATCH
+/dielca/signing/authorized_signer` recibe el capability `signing_token` en el
+cuerpo filtrado, nunca en la URL propia, y valida acceso y pertenencia a la lista.
+Al elegir, rellena Nombre, DNI personal y cargo, guarda el ID y recarga la pantalla.
+Cambiar de persona borra los valores anteriores, incluido el dibujo de firma.
+No admite cambios tras completar, archivar, declinar o caducar. Desactiva reutilizar
+firmas y delegar en estas importaciones. Sin JavaScript hay botón de confirmación.
+
+`GET /api/dielca/v1/pdf_imports/:request_id` devuelve al técnico la identidad
+seleccionada. El conector comprueba esta identidad contra los resultados y contra
+los autorizados vigentes de BC antes de `markSignedAuthorized`.
+
+SignedIdentity valida la selección antes de completar y mantiene el bloqueo del
+firmante durante la actualización. Solo actúa sobre envíos Dielca::PdfImport.
+Los envíos upstream conservan su comportamiento. DNI declarado no verifica identidad.
 
 ## Idempotencia y almacenamiento
 
 Nueva tabla dielca_pdf_imports e índice único (account_id, request_id). Se crean
 plantilla, adjuntos, envío, firmante y registro en la misma transacción. Mismo
-request_id/hash/identidad/metadata/diseño devuelve los mismos IDs y enlace actual.
+request_id/hash/cliente/lista de autorizados/metadata/diseño devuelve los mismos IDs y enlace actual.
 Contenido incompatible responde 409 IDEMPOTENCY_CONFLICT. Registro archivado
 responde IMPORT_ARCHIVED; no se crea otro envío. Cambiar las coordenadas de la
 plantilla no cambia firmas ya creadas ni el resultado de replays existentes.
@@ -79,7 +94,8 @@ permite recuperar el mismo envío repitiendo el endpoint.
    API upstream y OIDC. No usar SQLite ni mounts de producción para tests.
 2. Elegir la plantilla ficticia de diseño y revisar áreas sobre el PDF real de BC.
 3. Programar backup/migración y desplegar imagen revisada con autorización expresa.
-4. Aplicar migración 20261009120000_create_dielca_pdf_imports en ese mantenimiento.
+4. Aplicar migraciones 20261009120000 y 20261009121000 en ese mantenimiento.
+   Compilar/probar/publicar también la rama AL feat/autorizados-en-docuseal.
 5. Configurar DIELCA_BC_USER_ID y DIELCA_BC_LAYOUT_TEMPLATE_ID en el portal. Son
    IDs públicos, no secretos. El importador queda deshabilitado sin ambos datos.
 6. Configurar conector con DOCUSEAL_MODE=bc_pdf y el mismo ID de diseño. Verificar
@@ -88,12 +104,17 @@ permite recuperar el mismo envío repitiendo el endpoint.
 Una imagen que no incluye estos archivos no incorpora el importador al reiniciar.
 No se ha construido ni desplegado imagen en este encargo.
 
-## Validación pendiente
+## Validación realizada y pendiente
 
-Sintaxis Ruby revisada mediante ruby -c, sin arrancar Rails ni abrir sus datos.
-Specs escritos: contrato multipart/capacidades, bytes originales, hash, replay,
-conflictos, notificaciones/autocompletado, token/sesión/aislamiento, allowlist,
-rollback, precarga, preview de 17 páginas, PDF cifrado/inválido, geometría y nombre
-sincronizado solo para importaciones. Aún no ejecutados mientras se prepara la
-configuración. Pendientes también carrera concurrente real, reinicio abrupto,
-rotación/landscape y generación final de PDF/auditoría tras firma manual.
+31 specs del importador y sus servicios, 33 regresiones API/OIDC del portal y
+2 pruebas JavaScript pasan. BD/storage exclusivos en contenedor de test sin red,
+mounts ni credenciales reales. Se comprobaron bytes, hash, idempotencia, rollback,
+previews, restricciones de notificaciones, selección, relleno, cambio de persona,
+rechazo de identidad manipulada y finalización del formulario con datos readonly.
+
+Compilación Webpack del formulario completada sin errores en el contenedor aislado.
+No hay todavía prueba de navegador ni firma manual real.
+Pendientes carrera concurrente real, reinicio abrupto, rotación/landscape y
+verificación final del PDF firmado/auditoría. El endpoint actual aún devuelve 404;
+el diseño configurado actualmente no cumple el contrato. No se ha migrado ni
+modificado el servicio en producción.

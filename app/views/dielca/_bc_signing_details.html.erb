@@ -1,0 +1,32 @@
+<% customer = record.customer_data %>
+<% person = record.authorized_signers.find { |s| s['id'] == record.selected_signer_id } %>
+<section class="rounded-lg border border-base-300 bg-base-100 p-4 mt-6 mb-4 space-y-4" aria-labelledby="bc_customer_title">
+  <h2 id="bc_customer_title" class="text-lg font-semibold">Datos del cliente</h2>
+  <dl class="grid grid-cols-1 md:grid-cols-2 gap-3">
+    <div><dt class="text-sm opacity-70">Nombre o razón social</dt><dd class="font-medium"><%= customer['name'] %></dd></div>
+    <div><dt class="text-sm opacity-70">NIF/CIF del cliente</dt><dd><%= customer['vat_registration_no'] %></dd></div>
+    <div class="md:col-span-2"><dt class="text-sm opacity-70">Dirección</dt><dd><%= [customer['address'], customer['address2'], [customer['post_code'], customer['city']].compact_blank.join(' '), customer['county'], customer['country_code']].compact_blank.join(', ') %></dd></div>
+  </dl>
+  <dielca-authorized-signer>
+    <%= form_with url: dielca_authorized_signer_path, method: :patch, data: { turbo: false }, class: 'space-y-3' do |form| %>
+      <%= form.hidden_field :signing_token, value: submitter.slug %>
+      <%= form.label :authorized_signer_id, 'Persona autorizada que firma', class: 'block font-semibold' %>
+      <%= form.select :authorized_signer_id,
+            record.authorized_signers.map { |s| [[s['name'], s['job_title'].presence].compact.join(' — '), s['id']] },
+            { include_blank: 'Selecciona una persona', selected: record.selected_signer_id },
+            { required: true, class: 'select select-bordered w-full' } %>
+      <%= form.submit 'Rellenar datos', class: 'btn btn-sm', data: { signer_fallback: true } %>
+      <p data-signer-status role="status" aria-live="polite" class="text-sm"></p>
+    <% end %>
+  </dielca-authorized-signer>
+  <% if person %>
+    <dl class="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div><dt class="text-sm opacity-70">Nombre del firmante</dt><dd class="font-medium"><%= person['name'] %></dd></div>
+      <div><dt class="text-sm opacity-70">DNI/NIF del firmante</dt><dd><%= person['id_document_no'] %></dd></div>
+      <div><dt class="text-sm opacity-70">Cargo</dt><dd><%= person['job_title'] %></dd></div>
+    </dl>
+    <p class="text-sm">Comprueba tus datos y firma el documento.</p>
+  <% else %>
+    <p>Selecciona al autorizado para rellenar sus datos y continuar con la firma.</p>
+  <% end %>
+</section>

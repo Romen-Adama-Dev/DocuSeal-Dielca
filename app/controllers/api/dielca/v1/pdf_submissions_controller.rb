@@ -9,6 +9,7 @@ module Api
         def capabilities
           load_layout!
           render json: { version: 1, mode: 'bc_pdf', idempotent: true,
+                         authorized_signer_selection: true, customer_summary: true,
                          layout_template_id: @layout.id, max_bytes: ::Dielca::PdfSubmission::MAX_BYTES,
                          max_pages: ::Dielca::PdfSubmission::MAX_PAGES }
         end
@@ -24,18 +25,27 @@ module Api
                          status: 'ready' }, status: :created
         end
 
+        def selection
+          record = ::Dielca::PdfImport.find_by!(account: current_account, request_id: params[:request_id])
+          authorize!(:read, record.submission)
+          person = record.authorized_signers.find { |s| s['id'] == record.selected_signer_id }
+          render json: { request_id: record.request_id, selected_signer_id: record.selected_signer_id,
+                         signer_name: person&.dig('name'), signer_id_document_no: person&.dig('id_document_no') }
+        end
+
+        # Rails checks handlers in reverse order: register the broad fallback first.
+        rescue_from StandardError do
+          # Never log exception text, parameters, signed links or credentials.
+          Rails.logger.error('DIELCA_IMPORT_FAILED')
+          render json: { error: { code: 'IMPORT_FAILED' } }, status: :service_unavailable
+        end
+
         rescue_from ::Dielca::PdfSubmission::Error do |error|
           render json: { error: { code: error.code } }, status: error.status
         end
 
         rescue_from CanCan::AccessDenied do
           render json: { error: { code: 'IMPORT_FORBIDDEN' } }, status: :forbidden
-        end
-
-        rescue_from StandardError do
-          # Never log exception text, parameters, signed links or credentials.
-          Rails.logger.error('DIELCA_IMPORT_FAILED')
-          render json: { error: { code: 'IMPORT_FAILED' } }, status: :service_unavailable
         end
 
         private
@@ -55,7 +65,9 @@ module Api
           unless request.headers['X-Auth-Token'].present? && configured_user == current_user.id.to_s
             raise CanCan::AccessDenied
           end
-          unless ::Dielca::PdfImport.table_exists?
+          required_columns = %w[authorized_signers customer_data selected_signer_id id_field_uuid]
+          unless ::Dielca::PdfImport.table_exists? &&
+                 (required_columns - ::Dielca::PdfImport.column_names).empty?
             raise ::Dielca::PdfSubmission::Error.new('IMPORT_MIGRATION_REQUIRED', :service_unavailable)
           end
         end

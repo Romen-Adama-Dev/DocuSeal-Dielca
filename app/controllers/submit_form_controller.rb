@@ -24,6 +24,11 @@ class SubmitFormController < ApplicationController
     end
 
     @form_configs = Submitters::FormConfigs.call(@submitter, CONFIG_KEYS)
+    if Dielca::PdfImport.table_exists? && Dielca::PdfImport.exists?(submitter_id: @submitter.id, submission_id: submission.id)
+      @form_configs[:prefill_signature] = false
+      @form_configs[:reuse_signature] = false
+      @form_configs[:with_delegate] = false
+    end
 
     return render :awaiting if (@form_configs[:enforce_signing_order] ||
                                 submission.template&.preferences&.dig('submitters_order') == 'preserved') &&

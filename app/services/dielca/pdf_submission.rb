@@ -51,9 +51,9 @@ module Dielca
         name_uuid = fields.find { |f| f['name'] == 'Nombre' }['uuid']
         attrs = {
           'name' => @document_name,
-          'submitters' => [{ 'role' => 'Cliente', 'name' => @signer_name.presence || 'Identidad por recoger',
+          'submitters' => [{ 'role' => 'Cliente', 'name' => 'Autorizado por seleccionar',
                             'external_id' => "bc-#{@request_id}", 'metadata' => @metadata,
-                            'values' => @signer_name.present? ? { name_uuid => @signer_name } : {},
+                            'values' => {},
                             'send_email' => false, 'send_sms' => false }]
         }.with_indifferent_access
         submissions = Submissions::CreateFromSubmitters.call(
@@ -64,7 +64,9 @@ module Dielca
         submission = submissions.sole
         PdfImport.create!(account: @user.account, request_id: @request_id, pdf_sha256: @pdf_hash,
                           fingerprint: @fingerprint, submission:, submitter: submission.submitters.sole,
-                          name_field_uuid: name_uuid)
+                          name_field_uuid: name_uuid,
+                          id_field_uuid: fields.find { |f| f['name'] == 'DNI/NIF' }['uuid'],
+                          authorized_signers: @signers, customer_data: @customer)
       end
       @committed = true
       # Search/webhook jobs may be retried by repeating this idempotent endpoint.
@@ -72,7 +74,7 @@ module Dielca
       index!(result)
       result
     rescue ActiveRecord::RecordNotUnique
-      cleanup!
+      cleanup! unless @committed
       previous = PdfImport.find_by(account: @user.account, request_id: @request_id)
       raise Error.new('IMPORT_BUSY', :service_unavailable) unless previous
 
@@ -109,12 +111,64 @@ module Dielca
       @document_name = limited_string!(:document_name, 200)
       raise Error.new('DOCUMENT_NAME_REQUIRED') if @document_name.blank?
 
+      @customer = validated_customer!
+      @signers = validated_signers!
       @metadata = { 'request_id' => @request_id, 'pdf_hash' => @pdf_hash,
                     'order_number' => limited_string!(:order_number, 100),
-                    'customer' => limited_string!(:customer_name, 200), 'bc_original_pdf' => true }
+                    'customer' => @customer['name'], 'customer_vat_registration_no' => @customer['vat_registration_no'],
+                    'bc_original_pdf' => true }
       @fingerprint = Digest::SHA256.hexdigest(JSON.generate(
-        [@pdf_hash, @layout.id, @document_name, @signer_name, @metadata]
+        [@pdf_hash, @layout.id, @document_name, @metadata, @customer, @signers]
       ))
+    end
+
+    def validated_customer!
+      customer = JSON.parse(@params[:customer].to_s)
+      specs = { 'id' => 36, 'number' => 20, 'name' => 200, 'vat_registration_no' => 30,
+                'address' => 100, 'address2' => 100, 'post_code' => 20, 'city' => 100,
+                'county' => 100, 'country_code' => 10 }
+      raise Error.new('CUSTOMER_DATA_INVALID') unless customer.is_a?(Hash)
+
+      result = specs.to_h do |key, length|
+        value = customer[key] || ''
+        raise Error.new('CUSTOMER_DATA_INVALID') unless value.is_a?(String) && value.length <= length && !value.include?("\0")
+
+        [key, value.strip]
+      end
+      raise Error.new('CUSTOMER_DATA_INVALID') unless REQUEST_ID.match?(result['id']) && result['name'].present?
+
+      result
+    rescue JSON::ParserError
+      raise Error.new('CUSTOMER_DATA_INVALID')
+    end
+
+    def validated_signers!
+      signers = JSON.parse(@params[:authorized_signers].to_s)
+      unless signers.is_a?(Array) && signers.size.between?(1, 50)
+        raise Error.new('AUTHORIZED_SIGNERS_INVALID')
+      end
+      specs = { 'id' => 36, 'contact_number' => 20, 'name' => 100, 'job_title' => 50, 'id_document_no' => 30 }
+      result = signers.map do |person|
+        raise Error.new('AUTHORIZED_SIGNERS_INVALID') unless person.is_a?(Hash)
+
+        signer = specs.to_h do |key, length|
+          value = person[key] || ''
+          unless value.is_a?(String) && value.length <= length && !value.include?("\0")
+            raise Error.new('AUTHORIZED_SIGNERS_INVALID')
+          end
+          [key, value.strip]
+        end
+        unless REQUEST_ID.match?(signer['id']) && signer['name'].present? &&
+               signer['contact_number'].present? && signer['id_document_no'].present?
+          raise Error.new('AUTHORIZED_SIGNERS_INVALID')
+        end
+        signer
+      end
+      raise Error.new('AUTHORIZED_SIGNERS_INVALID') unless result.pluck('id').uniq.size == result.size
+
+      result.sort_by { |s| s['id'] }
+    rescue JSON::ParserError
+      raise Error.new('AUTHORIZED_SIGNERS_INVALID')
     end
 
     def limited_string!(key, length)

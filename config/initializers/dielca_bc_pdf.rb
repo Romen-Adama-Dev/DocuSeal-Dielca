@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-Rails.application.config.filter_parameters += %i[pdf signer_name customer_name sign_url signing_url]
+Rails.application.config.filter_parameters += %i[pdf signer_name customer_name customer authorized_signers signing_token sign_url signing_url]
 
 Rails.application.config.to_prepare do
   singleton = Submitters::SubmitValues.singleton_class

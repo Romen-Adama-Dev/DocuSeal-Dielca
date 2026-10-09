@@ -3,6 +3,7 @@
 <% I18n.with_locale(@submitter.account.locale) do %>
   <% content_for(:html_description, t('account_name_has_invited_you_to_fill_and_sign_documents_online_effortlessly_with_a_secure_fast_and_user_friendly_digital_document_signing_solution', account_name: @submitter.account.name)) %>
 <% end %>
+<% bc_import = Dielca::PdfImport.table_exists? ? Dielca::PdfImport.find_by(submitter_id: @submitter.id, submission_id: @submitter.submission_id) : nil %>
 <% fields_index = Templates.build_field_areas_index(@submitter.submission.template_fields || @submitter.submission.template.fields) %>
 <% values = @submitter.submission.submitters.reduce({}) { |acc, sub| acc.merge(sub.values) } %>
 <% submitters_index = @submitter.submission.submitters.index_by(&:uuid) %>
@@ -131,6 +132,7 @@
           <% end %>
         </scroll-buttons>
       <% end %>
+      <%= render 'dielca/bc_signing_details', record: bc_import, submitter: @submitter if bc_import %>
       <% schema.each do |item| %>
         <% document = @submitter.submission.schema_documents.find { |a| a.uuid == item['attachment_uuid'] } %>
         <div id="document-<%= document.uuid %>">
@@ -177,7 +179,9 @@
 <div class="fixed bottom-0 w-full h-0 z-50">
   <div class="mx-auto" style="max-width: 1000px">
     <div class="relative md:mx-32">
+      <% if bc_import.nil? || bc_import.selected_signer_id.present? %>
       <%= render 'submit_form/submission_form', attachments_index: @attachments_index, submitter: @submitter, prefill_signature: @prefill_signature, prefill_initials: @prefill_initials, current_user_data: @current_user_data, configs: @form_configs, dry_run: local_assigns[:dry_run], expand: local_assigns[:expand], scroll_padding: local_assigns.fetch(:scroll_padding, turbo_native_app? ? '-80px' : '-110px'), schema: %>
+      <% end %>
     </div>
   </div>
 </div>
