@@ -1,7 +1,10 @@
 # Importación DIELCA del PDF original de Business Central
 
-Implementación local en `feat/dielca-bc-pdf-import`. No aplicada al servicio actual.
-No se ha migrado SQLite de producción ni cambiado imagen, servicios o volúmenes.
+Implementación en `feat/dielca-bc-pdf-import`, desplegada por autorización del usuario
+el 09/10/2026. Servicio docuseal_app en worker3, imagen docuseal-dielca:3b52a75f.
+Migraciones aplicadas; diseño 7 y técnico 4, --check-portal verificado.
+Copia coherente previa con integridad SQLite verificada. Detalles operativos en
+/home/dielca-server/informe-despliegue-conector.md. Falta publicar la API AL de BC.
 
 ## Contrato
 
@@ -88,7 +91,7 @@ revisar la política de limpieza de blobs huérfanos antes del despliegue. La li
 nunca borra objetos ajenos a esta llamada. Un fallo de indexado posterior a commit
 permite recuperar el mismo envío repitiendo el endpoint.
 
-## Activación propuesta, sin ejecutar
+## Procedimiento de activación
 
 1. Revisar el código y ejecutar specs en BD/storage exclusivos de test, incluidos
    API upstream y OIDC. No usar SQLite ni mounts de producción para tests.
@@ -102,7 +105,7 @@ permite recuperar el mismo envío repitiendo el endpoint.
    --check-portal y ejecutar una pasada del pedido ficticio OFV22/41067.
 
 Una imagen que no incluye estos archivos no incorpora el importador al reiniciar.
-No se ha construido ni desplegado imagen en este encargo.
+La imagen 3b52a75f ya está construida y desplegada. El conector espera la API AL.
 
 ## Validación realizada y pendiente
 
@@ -115,6 +118,6 @@ rechazo de identidad manipulada y finalización del formulario con datos readonl
 Compilación Webpack del formulario completada sin errores en el contenedor aislado.
 No hay todavía prueba de navegador ni firma manual real.
 Pendientes carrera concurrente real, reinicio abrupto, rotación/landscape y
-verificación final del PDF firmado/auditoría. El endpoint actual aún devuelve 404;
-el diseño configurado actualmente no cumple el contrato. No se ha migrado ni
-modificado el servicio en producción.
+verificación final del PDF firmado/auditoría. El importador activo pasa capacidades y el diseño cumple el contrato.
+La API signatureAuthorizedSigners de BC sigue devolviendo 404; el conector espera
+sin reservar solicitudes. Las pruebas completas requieren publicar esa extensión.
