@@ -65,7 +65,7 @@
       @focus="$emit('focus')"
     />
     <div
-      v-if="!isTextArea && field.type !== 'cells' && !field.validation?.pattern"
+      v-if="!isTextArea && field.type !== 'cells' && !field.validation?.pattern && !field.preferences?.dielca_personal_identity"
       class="tooltip"
       :data-tip="t('toggle_multiline_text')"
     >
@@ -85,6 +85,7 @@
 import { IconAlignBoxLeftTop } from '@tabler/icons-vue'
 import AppearsOn from './appears_on'
 import MarkdownContent from './markdown_content'
+import { identityError, normalizeIdentity } from '../dielca/spanish_identity'
 
 export default {
   name: 'TextStep',
@@ -184,7 +185,7 @@ export default {
   },
   mounted () {
     if (this.modelValue) {
-      this.isTextArea = this.modelValue.toString().includes('\n')
+      this.isTextArea = !this.field.preferences?.dielca_personal_identity && this.modelValue.toString().includes('\n')
 
       if (this.isTextArea) {
         this.$nextTick(() => {
@@ -197,7 +198,12 @@ export default {
   },
   methods: {
     validateValue (input) {
-      if (this.isIbanValidation) {
+      if (!input) return
+      if (this.field.preferences?.dielca_personal_identity) {
+        const value = normalizeIdentity(input.value)
+        input.setCustomValidity(identityError(value))
+        this.text = value
+      } else if (this.isIbanValidation) {
         input.setCustomValidity(this.isValidIban(input.value) ? '' : this.t('must_be_valid_iban'))
       }
     },

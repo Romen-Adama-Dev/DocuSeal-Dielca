@@ -2,22 +2,31 @@
 <% person = record.authorized_signers.find { |s| s['id'] == record.selected_signer_id } %>
 <section class="rounded-lg border border-base-300 bg-base-100 p-4 mt-6 mb-4 space-y-4" aria-labelledby="bc_customer_title">
   <h2 id="bc_customer_title" class="text-lg font-semibold">Datos del cliente</h2>
+  <p>Cliente: <%= customer['name'] %> —
+    <% if customer['id_type'] == 'CIF' %>
+      Empresa (CIF <%= customer['vat_registration_no'] %>)
+    <% elsif %w[DNI NIE NIF].include?(customer['id_type']) %>
+      Persona física (<%= customer['id_type'] %> <%= customer['vat_registration_no'] %>)
+    <% else %>
+      Tipo de identificación no indicado
+    <% end %>
+  </p>
   <dl class="grid grid-cols-1 md:grid-cols-2 gap-3">
     <div><dt class="text-sm opacity-70">Nombre o razón social</dt><dd class="font-medium"><%= customer['name'] %></dd></div>
     <div><dt class="text-sm opacity-70">NIF/CIF del cliente</dt><dd><%= customer['vat_registration_no'] %></dd></div>
     <div class="md:col-span-2"><dt class="text-sm opacity-70">Dirección</dt><dd><%= [customer['address'], customer['address2'], [customer['post_code'], customer['city']].compact_blank.join(' '), customer['county'], customer['country_code']].compact_blank.join(', ') %></dd></div>
   </dl>
   <% if record.free_signing? %>
-    <p>Escribe tu nombre y tu DNI/NIF personal antes de firmar.</p>
+    <p>Escribe tu nombre y tu DNI/NIE personal antes de firmar.</p>
   <% else %>
   <dielca-authorized-signer>
     <%= form_with url: dielca_authorized_signer_path, method: :patch, data: { turbo: false }, class: 'space-y-3' do |form| %>
       <%= form.hidden_field :signing_token, value: submitter.slug %>
       <%= form.label :authorized_signer_id, 'Persona autorizada que firma', class: 'block font-semibold' %>
       <%= form.select :authorized_signer_id,
-            record.authorized_signers.map { |s| [[s['name'], s['job_title'].presence].compact.join(' — '), s['id']] },
-            { include_blank: 'Selecciona una persona', selected: record.selected_signer_id },
-            { required: true, class: 'select select-bordered w-full' } %>
+                      record.authorized_signers.map { |s| [[s['name'], s['job_title'].presence].compact.join(' — '), s['id']] },
+                      { include_blank: 'Selecciona una persona', selected: record.selected_signer_id },
+                      { required: true, class: 'select select-bordered w-full' } %>
       <%= form.submit 'Rellenar datos', class: 'btn btn-sm', data: { signer_fallback: true } %>
       <p data-signer-status role="status" aria-live="polite" class="text-sm"></p>
     <% end %>
@@ -25,7 +34,7 @@
   <% if person %>
     <dl class="grid grid-cols-1 md:grid-cols-3 gap-3">
       <div><dt class="text-sm opacity-70">Nombre del firmante</dt><dd class="font-medium"><%= person['name'] %></dd></div>
-      <div><dt class="text-sm opacity-70">DNI/NIF del firmante</dt><dd><%= person['id_document_no'] %></dd></div>
+      <div><dt class="text-sm opacity-70">Documento del firmante<% if %w[DNI NIE NIF].include?(person['id_document_type']) %> (<%= person['id_document_type'] %>)<% end %></dt><dd><%= person['id_document_no'] %></dd></div>
       <div><dt class="text-sm opacity-70">Cargo</dt><dd><%= person['job_title'] %></dd></div>
     </dl>
     <p class="text-sm">Comprueba tus datos y firma el documento.</p>

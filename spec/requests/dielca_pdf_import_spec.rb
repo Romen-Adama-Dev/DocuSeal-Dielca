@@ -57,6 +57,30 @@ RSpec.describe 'DIELCA original BC PDF API' do
     file&.close!
   end
 
+  it 'persists BC 0.3 customer and authorized identity types' do
+    import(customer: customer_data.merge(id_type: 'CIF').to_json,
+           authorized_signers: signers.map { |s| s.merge(id_document_type: 'NIE') }.to_json)
+    expect(response).to have_http_status(:created)
+    record = Dielca::PdfImport.find_by!(account:, request_id:)
+    expect(record.customer_data['id_type']).to eq('CIF')
+    expect(record.authorized_signers.pluck('id_document_type')).to eq(%w[NIE NIE])
+  end
+
+  it 'rejects unknown identity types before creating a submission' do
+    expect { import(customer: customer_data.merge(id_type: 'Other').to_json) }.not_to change(Submission, :count)
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(response.parsed_body.dig('error', 'code')).to eq('CUSTOMER_DATA_INVALID')
+  end
+
+  it 'replays legacy snapshots without optional types' do
+    import
+    record = Dielca::PdfImport.find_by!(account:, request_id:)
+    expect(record.customer_data).not_to have_key('id_type')
+    expect(record.authorized_signers).to all(satisfy { |s| !s.key?('id_document_type') })
+    expect { import }.not_to change(Submission, :count)
+    expect(response).to have_http_status(:created)
+  end
+
   it 'advertises idempotent PDF import with the allowed layout' do
     get '/api/dielca/v1/pdf_import_capabilities', headers:, params: { layout_template_id: layout.id }
     expect(response).to have_http_status(:ok)
@@ -277,7 +301,7 @@ RSpec.describe 'DIELCA original BC PDF API' do
       expect(fields).to all(include('readonly' => false, 'required' => true))
       get submit_form_path(slug: record.submitter.slug)
       expect(response).to have_http_status(:ok)
-      expect(response.body).to include('<submission-form', 'Datos del cliente', 'DNI/NIF personal')
+      expect(response.body).to include('<submission-form', 'Datos del cliente', 'DNI/NIE personal', 'dielca_personal_identity')
       expect(response.body).not_to include('<dielca-authorized-signer', 'Persona autorizada que firma')
     end
 
@@ -287,12 +311,12 @@ RSpec.describe 'DIELCA original BC PDF API' do
       signature_uuid = record.submission.template.fields.find { |f| f['type'] == 'signature' }['uuid']
       put submit_form_path(slug: record.submitter.slug), params: {
         completed: 'true', values: { record.name_field_uuid => 'Persona presente ficticia',
-                                    record.id_field_uuid => 'ID personal ficticio', signature_uuid => 'test-signature' }
+                                    record.id_field_uuid => ' es 12.345/678-z_ ', signature_uuid => 'test-signature' }
       }
       expect(response).to have_http_status(:ok)
       expect(record.submitter.reload.completed_at).to be_present
       expect(record.submitter.name).to eq('Persona presente ficticia')
-      expect(record.submitter.values[record.id_field_uuid]).to eq('ID personal ficticio')
+      expect(record.submitter.values[record.id_field_uuid]).to eq('12345678Z')
       expect(record.submitter.values[record.id_field_uuid]).not_to eq(customer_data[:vat_registration_no])
     end
 
@@ -305,6 +329,21 @@ RSpec.describe 'DIELCA original BC PDF API' do
       expect(response).to have_http_status(:unprocessable_content)
       expect(record.submitter.reload.completed_at).to be_nil
       expect(record.submitter.values[record.id_field_uuid]).to be_blank
+    end
+
+    %w[12345678A X1234567A B12345674 P1234567D].each do |document|
+      it "rejects invalid or company identity #{document} on the server" do
+        import(signer_mode: 'free')
+        record = Dielca::PdfImport.find_by!(account:, request_id:)
+        put submit_form_path(slug: record.submitter.slug), params: {
+          completed: 'true', values: { record.name_field_uuid => 'Persona ficticia', record.id_field_uuid => document }
+        }
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(record.submitter.reload.completed_at).to be_nil
+        if document.start_with?('B', 'P')
+          expect(response.parsed_body['error']).to eq('Es un CIF de empresa; indique su DNI o NIE')
+        end
+      end
     end
 
     it 'never replaces a free import when an authorized list is later supplied' do
@@ -373,6 +412,20 @@ RSpec.describe 'DIELCA original BC PDF API' do
     it 'rejects it without creating a submission' do
       expect { import }.not_to change(Submission, :count)
       expect(response.parsed_body.dig('error', 'code')).to eq('PDF_INVALID')
+    end
+  end
+end
+
+RSpec.describe 'DIELCA BC customer identity display', type: :view do
+  it 'distinguishes companies and natural persons without editable customer fields' do
+    customer = { 'name' => 'Cliente ficticio', 'vat_registration_no' => 'Documento ficticio' }
+    { 'CIF' => 'Empresa', 'DNI' => 'Persona física', 'NIE' => 'Persona física',
+      'NIF' => 'Persona física', 'None' => 'Tipo de identificación no indicado' }.each do |type, label|
+      record = double(customer_data: customer.merge('id_type' => type), authorized_signers: [],
+                      selected_signer_id: nil, free_signing?: true)
+      render partial: 'dielca/bc_signing_details', locals: { record:, submitter: double }
+      expect(rendered).to include('Cliente ficticio', label)
+      expect(rendered).not_to include('<input', '<select')
     end
   end
 end

@@ -137,6 +137,23 @@ Validación de finalización: nombre hasta 100 y DNI hasta 30 caracteres, string
 no vacíos, sin NUL. SignedIdentity sincroniza el nombre escrito antes de completar.
 No se precarga el NIF de la empresa. En authorized se conserva el flujo previo.
 
+En modo libre, el documento se presenta como «DNI/NIE» y se valida en navegador y
+servidor mediante letra de control: DNI, NIE X/Y/Z y NIF personales K/L/M.
+Se normaliza a mayúsculas, eliminando espacios, puntos, guiones, barras,
+guiones bajos y el prefijo ES. Un CIF válido se reconoce como empresa y se rechaza
+como identidad del firmante. No se puede completar con un documento inválido.
+El valor normalizado se conserva para el PDF, la auditoría y el retorno a BC.
+El nombre interno del campo sigue siendo DNI/NIF para conservar el contrato API.
+Las firmas libres abiertas anteriores reciben también la validación del navegador
+al cargar el formulario; no se modifican documentos ya firmados.
+
+El conector transforma customerIdType de BC a customer.id_type: CIF muestra
+«Empresa» y DNI/NIE/NIF muestran «Persona física». Datos del cliente y tipo son
+de solo lectura; no se infiere ni se sustituye el documento personal desde el cliente.
+Sin tipo conocido se indica que no está especificado. No hay migraciones nuevas
+para este cambio ni debe modificarse SQLite en producción; cualquier migración
+posterior requiere copia consistente de SQLite antes de ejecutarla y revisión.
+
 Nueva migración 20261009122000: signer_mode, default authorized para los envíos
 anteriores. Capacidades anuncia free_signing=true y comprueba esa columna. Rails
 filtra values para evitar nombres/DNI en los logs de parámetros. Revisar y activar

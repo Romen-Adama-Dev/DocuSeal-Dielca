@@ -130,7 +130,7 @@ module Dielca
       customer = JSON.parse(@params[:customer].to_s)
       specs = { 'id' => 36, 'number' => 20, 'name' => 200, 'vat_registration_no' => 30,
                 'address' => 100, 'address2' => 100, 'post_code' => 20, 'city' => 100,
-                'county' => 100, 'country_code' => 10 }
+                'county' => 100, 'country_code' => 10, 'id_type' => 4 }
       raise Error.new('CUSTOMER_DATA_INVALID') unless customer.is_a?(Hash)
 
       result = specs.to_h do |key, length|
@@ -140,6 +140,11 @@ module Dielca
         [key, value.strip]
       end
       raise Error.new('CUSTOMER_DATA_INVALID') unless REQUEST_ID.match?(result['id']) && result['name'].present?
+      unless ['', 'None', 'CIF', 'DNI', 'NIE', 'NIF'].include?(result['id_type'])
+        raise Error.new('CUSTOMER_DATA_INVALID')
+      end
+
+      result.delete('id_type') unless customer.key?('id_type')
 
       result
     rescue JSON::ParserError
@@ -151,7 +156,8 @@ module Dielca
       unless signers.is_a?(Array) && signers.size.between?(0, 50)
         raise Error.new('AUTHORIZED_SIGNERS_INVALID')
       end
-      specs = { 'id' => 36, 'contact_number' => 20, 'name' => 100, 'job_title' => 50, 'id_document_no' => 30 }
+      specs = { 'id' => 36, 'contact_number' => 20, 'name' => 100, 'job_title' => 50, 'id_document_no' => 30,
+                'id_document_type' => 4 }
       result = signers.map do |person|
         raise Error.new('AUTHORIZED_SIGNERS_INVALID') unless person.is_a?(Hash)
 
@@ -166,6 +172,10 @@ module Dielca
                signer['contact_number'].present? && signer['id_document_no'].present?
           raise Error.new('AUTHORIZED_SIGNERS_INVALID')
         end
+        unless ['', 'None', 'CIF', 'DNI', 'NIE', 'NIF'].include?(signer['id_document_type'])
+          raise Error.new('AUTHORIZED_SIGNERS_INVALID')
+        end
+        signer.delete('id_document_type') unless person.key?('id_document_type')
         signer
       end
       raise Error.new('AUTHORIZED_SIGNERS_INVALID') unless result.pluck('id').uniq.size == result.size
