@@ -225,9 +225,13 @@ DNI a la izquierda; firma a la derecha. Caja inicial: x=0.055, y=0.765, w=0.245,
 Las coordenadas proceden de la referencia visual: revisar sobre un PDF original
 anonimizado antes de publicar. No se ha guardado la imagen con datos de cliente.
 
-Informes 50002 (pedido) y 50001 (factura): no hay diseño anonimizado disponible para
-medir su caja. Se rechazan cuando no existe perfil/fallback propio. Añadir sus perfiles
-tras medirlos, sin reutilizar automáticamente el del albarán.
+Informe 50002 / SalesOrder: por indicación expresa del usuario se conserva la
+posición ya utilizada en los pedidos anteriores de la plantilla 7. Nombre:
+x=0.09, y=0.792, w=0.55, h=0.018; DNI/NIF: x=0.09, y=0.832, w=0.22, h=0.019;
+Firma: x=0.34, y=0.815, w=0.33, h=0.05. Se mantienen en la última página.
+
+Informe 50001 (factura): falta medir su posición; se rechaza hasta configurar su
+perfil, sin reutilizar automáticamente el diseño del pedido o del albarán.
 
 Vista de revisión con datos ficticios (solo entorno aislado test/desarrollo):
 `bundle exec rails runner scripts/dielca_layout_preview.rb` genera

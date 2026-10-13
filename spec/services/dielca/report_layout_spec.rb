@@ -14,11 +14,22 @@ RSpec.describe Dielca::ReportLayout do
     expect(described_class.load(report_id: '', document_type: '')).to be_nil
   end
 
-  %w[50001 50002].each do |report|
+  %w[50001].each do |report|
     it "refuses unmeasured report #{report} instead of stamping a guessed box" do
       expect { described_class.load(report_id: report, document_type: '') }
         .to raise_error(Dielca::PdfSubmission::Error) { |error| expect(error.code).to eq('REPORT_LAYOUT_NOT_CONFIGURED') }
     end
+  end
+
+  it 'preserves the approved order placement on the last page' do
+    config = described_class.load(report_id: '50002', document_type: 'SalesOrder')
+    expect(described_class.load(report_id: '99999', document_type: 'SalesOrder')).to eq(config)
+    result = fields(config, page: 2)
+    expect(result.map { |field| field['areas'].first.slice('x', 'y', 'w', 'h', 'page') }).to eq([
+      { 'x' => 0.09, 'y' => 0.792, 'w' => 0.55, 'h' => 0.018, 'page' => 2 },
+      { 'x' => 0.09, 'y' => 0.832, 'w' => 0.22, 'h' => 0.019, 'page' => 2 },
+      { 'x' => 0.34, 'y' => 0.815, 'w' => 0.33, 'h' => 0.05, 'page' => 2 }
+    ])
   end
 
   it 'contains all three nonoverlapping fields below taxes inside the left box' do
