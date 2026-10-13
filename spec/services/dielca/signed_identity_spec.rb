@@ -15,14 +15,15 @@ RSpec.describe Dielca::SignedIdentity do
     Dielca::PdfImport.create!(account: submission.account, request_id: SecureRandom.uuid,
                              pdf_sha256: '0' * 64, fingerprint: '0' * 64,
                              submission:, submitter:, name_field_uuid: field_uuid, id_field_uuid: id_uuid,
-                             selected_signer_id: person_id,
+                             selected_signer_id: person_id, customer_data: { 'copy_email_required' => false },
                              authorized_signers: [{ 'id' => person_id, 'name' => 'Nombre escrito',
-                                                    'id_document_no' => 'ID ficticio' }])
+                                                    'id_document_no' => '12345678Z' }])
+    submitter.metadata = { 'dielca_copy_email' => { 'confirmed' => true, 'skipped' => true, 'recipients' => [] } }
   end
 
   it 'synchronizes the written name before completion defaults and audit processing' do
     register_import
-    submitter.values = { field_uuid => 'Nombre escrito', id_uuid => 'ID ficticio' }
+    submitter.values = { field_uuid => 'Nombre escrito', id_uuid => '12345678Z' }
     Submitters::SubmitValues.assign_completed_attributes(submitter, request, validate_required: false)
     expect(submitter.name).to eq('Nombre escrito')
     expect(submitter.completed_at).to be_present
@@ -30,7 +31,7 @@ RSpec.describe Dielca::SignedIdentity do
 
   it 'does not change identity for an upstream submission' do
     original = submitter.name
-    submitter.values = { field_uuid => 'Nombre escrito', id_uuid => 'ID ficticio' }
+    submitter.values = { field_uuid => 'Nombre escrito', id_uuid => '12345678Z' }
     Submitters::SubmitValues.assign_completed_attributes(submitter, request, validate_required: false)
     expect(submitter.name).to eq(original)
   end

@@ -45,8 +45,13 @@ module Dielca
         document = create_document!(template)
         preview!(document, doc)
         role_uuid = template.submitters.first['uuid']
-        fields = PdfLayout.fields(@layout, document_uuid: document.uuid,
-                                 page: doc.page_count - 1, role_uuid:, signer_mode: @signer_mode)
+        fields = if @report_profile
+                   ReportLayout.fields(@report_profile, document_uuid: document.uuid,
+                                       page: doc.page_count - 1, role_uuid:, signer_mode: @signer_mode)
+                 else
+                   PdfLayout.fields(@layout, document_uuid: document.uuid,
+                                    page: doc.page_count - 1, role_uuid:, signer_mode: @signer_mode)
+                 end
         template.update!(schema: [{ 'attachment_uuid' => document.uuid, 'name' => @document_name }], fields:)
         name_uuid = fields.find { |f| f['name'] == 'Nombre' }['uuid']
         attrs = {
@@ -113,6 +118,15 @@ module Dielca
 
       @customer = validated_customer!
       @signers = validated_signers!
+      @report_id = (@params[:report_id] || @params[:reportId]).to_s
+      @document_type = (@params[:document_type] || @params[:documentType]).to_s
+      unless @report_id.blank? || @report_id.match?(/\A[1-9]\d{0,9}\z/)
+        raise Error.new('REPORT_ID_INVALID')
+      end
+      unless @document_type.blank? || %w[SalesOrder PostedShipment PostedInvoice].include?(@document_type)
+        raise Error.new('DOCUMENT_TYPE_INVALID')
+      end
+      @report_profile = ReportLayout.load(report_id: @report_id, document_type: @document_type)
       @signer_mode = @signers.empty? ? 'free' : 'authorized'
       if @params[:signer_mode].present? && @params[:signer_mode] != @signer_mode
         raise Error.new('SIGNER_MODE_INVALID')
@@ -121,6 +135,14 @@ module Dielca
                     'order_number' => limited_string!(:order_number, 100),
                     'customer' => @customer['name'], 'customer_vat_registration_no' => @customer['vat_registration_no'],
                     'bc_original_pdf' => true }
+      @metadata['report_id'] = @report_id if @report_id.present?
+      @metadata['document_type'] = @document_type if @document_type.present?
+      number = @params[:document_number] || @params[:documentNumber]
+      if number
+        raise Error.new('METADATA_INVALID') unless number.is_a?(String) && number.length <= 100 && number.exclude?("\0")
+
+        @metadata['document_number'] = number.strip
+      end
       @fingerprint = Digest::SHA256.hexdigest(JSON.generate(
         [@pdf_hash, @layout.id, @document_name, @metadata, @customer, @signers]
       ))
@@ -145,6 +167,18 @@ module Dielca
       end
 
       result.delete('id_type') unless customer.key?('id_type')
+      email = customer['email'].presence || @params[:customer_email].presence || @params[:customerEmail]
+      if email
+        raise Error.new('CUSTOMER_DATA_INVALID') unless email.is_a?(String) && email.length <= 254 && email.exclude?("\0")
+
+        result['email'] = email.strip
+      end
+      required = @params.key?(:copy_email_required) ? @params[:copy_email_required] : @params[:copyEmailRequired]
+      if !required.nil?
+        raise Error.new('COPY_EMAIL_POLICY_INVALID') unless [true, false, 'true', 'false'].include?(required)
+
+        result['copy_email_required'] = required.in?([true, 'true'])
+      end
 
       result
     rescue JSON::ParserError
@@ -176,6 +210,12 @@ module Dielca
           raise Error.new('AUTHORIZED_SIGNERS_INVALID')
         end
         signer.delete('id_document_type') unless person.key?('id_document_type')
+        if person.key?('email')
+          email = person['email']
+          raise Error.new('AUTHORIZED_SIGNERS_INVALID') unless email.is_a?(String) && email.length <= 254 && email.exclude?("\0")
+
+          signer['email'] = email.strip
+        end
         signer
       end
       raise Error.new('AUTHORIZED_SIGNERS_INVALID') unless result.pluck('id').uniq.size == result.size

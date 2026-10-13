@@ -11,11 +11,13 @@ import PageContainer from './elements/page_container'
 import SubmitForm from './elements/submit_form'
 import ModalButton from './elements/modal_button'
 import DielcaAuthorizedSigner from './elements/dielca_authorized_signer'
+import DielcaSigningConfirmation from './elements/dielca_signing_confirmation'
 import NativeAction from './elements/native_action'
 
 const safeRegisterElement = (name, element, options = {}) => !window.customElements.get(name) && window.customElements.define(name, element, options)
 
 safeRegisterElement('dielca-authorized-signer', DielcaAuthorizedSigner)
+safeRegisterElement('dielca-signing-confirmation', DielcaSigningConfirmation)
 safeRegisterElement('download-button', DownloadButton)
 safeRegisterElement('toggle-submit', ToggleSubmit)
 safeRegisterElement('fetch-form', FetchForm)

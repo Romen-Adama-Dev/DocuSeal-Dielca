@@ -1,6 +1,6 @@
 # Importación DIELCA del PDF original de Business Central
 
-Implementación en `feat/dielca-bc-pdf-import`, desplegada por autorización del usuario
+Registro histórico de la implementación en `feat/dielca-bc-pdf-import`, desplegada por autorización del usuario
 el 09/10/2026. Servicio docuseal_app en worker3, imagen docuseal-dielca:3b52a75f.
 Migraciones aplicadas; diseño 7 y técnico 4, --check-portal verificado.
 Copia coherente previa con integridad SQLite verificada. Detalles operativos en
@@ -27,7 +27,7 @@ Requiere X-Auth-Token del usuario técnico; no acepta sesión como alternativa.
 - customer_name: texto opcional hasta 200 caracteres.
 - send_email y send_sms: ambos textos multipart `false` obligatorios.
 
-`completed` está prohibido. El endpoint no usa email/phone, cuenta, URLs remotas,
+`completed` está prohibido. El endpoint no usa email/phone como identificadores del firmante, cuenta, URLs remotas,
 campos o coordenadas enviados por el cliente. La cuenta procede del token.
 La plantilla de diseño debe pertenecer a esa cuenta y ser accesible/activa.
 
@@ -102,10 +102,11 @@ permite recuperar el mismo envío repitiendo el endpoint.
 5. Configurar DIELCA_BC_USER_ID y DIELCA_BC_LAYOUT_TEMPLATE_ID en el portal. Son
    IDs públicos, no secretos. El importador queda deshabilitado sin ambos datos.
 6. Configurar conector con DOCUSEAL_MODE=bc_pdf y el mismo ID de diseño. Verificar
-   --check-portal y ejecutar una pasada del pedido ficticio OFV22/41067.
+   --check-portal y ejecutar una pasada del pedido ficticio PED-DEMO.
 
 Una imagen que no incluye estos archivos no incorpora el importador al reiniciar.
-La imagen 3b52a75f ya está construida y desplegada. El conector espera la API AL.
+En la revisión inicial se construyó y desplegó 3b52a75f. Ese registro histórico no
+certifica la imagen actual ni el estado actual de la API AL; este cambio es local.
 
 ## Validación realizada y pendiente
 
@@ -132,7 +133,7 @@ se almacena en dielca_pdf_imports y no cambia después. La huella incluye la lis
 no se permite pasar de free a authorized reutilizando requestId.
 
 En free: Nombre y DNI/NIF vacíos, editables, obligatorios; no hay desplegable y el
-formulario de firma aparece directamente. La persona escribe ambos y firma.
+formulario de firma se habilita tras validar identidad y confirmar la copia (véase BC 0.4 abajo).
 Validación de finalización: nombre hasta 100 y DNI hasta 30 caracteres, strings
 no vacíos, sin NUL. SignedIdentity sincroniza el nombre escrito antes de completar.
 No se precarga el NIF de la empresa. En authorized se conserva el flujo previo.
@@ -162,4 +163,109 @@ portal y conector como una actualización compatible; no ejecutado en este cambi
 Verificación del cambio: 37 specs del importador/servicios y 33 regresiones API/OIDC
 pasan en contenedor aislado, sin red, puertos, mounts de producción ni credenciales.
 Se mantienen 2 pruebas JavaScript del desplegable. Falta prueba humana posterior
-al despliegue revisado con OFV26/102186 y seguimiento markSigned en BC.
+al despliegue revisado con PED-DEMO y seguimiento markSigned en BC.
+
+## BC 0.4: identidad previa, cajas por informe y copia confirmada
+
+Cambio local pendiente de revisión y despliegue. No añade migraciones, secretos,
+volúmenes ni dependencias. Conserva SQLite y los avisos/licencia AGPL existentes.
+Antes de cualquier migración pendiente del despliegue, realizar una copia consistente
+completa de SQLite y sus documentos; nunca usar la BD de producción para pruebas.
+
+### Contrato que debe reenviar el conector
+
+El multipart del importador admite `report_id` / `reportId` (identificador positivo),
+`document_type` / `documentType` (`SalesOrder`, `PostedShipment`, `PostedInvoice`),
+`document_number` / `documentNumber`, `customer.email` o `customerEmail`,
+`authorized_signers[].email`, y `copy_email_required` / `copyEmailRequired` (booleano
+JSON o texto `true` / `false`). `customerIdType` sigue entrando como `customer.id_type`.
+El conector debe reenviar estos campos: recibirlos de BC no basta si los descarta
+al construir el multipart. Los aliases raíz se aceptan para facilitar esa actualización.
+
+Sin política explícita la copia es obligatoria, incluidos envíos abiertos antiguos.
+La huella idempotente incluye estos datos. No reutilizar un requestId cambiando
+informe, tipo, correo, política o snapshot: se devuelve `IDEMPOTENCY_CONFLICT`.
+Un envío ya creado conserva sus áreas; editar el JSON no recoloca envíos existentes.
+
+### Identidad y acceso a la firma
+
+Tanto el modo libre como el autorizado requieren documento personal válido. Un
+snapshot autorizado con documento vacío, inválido o CIF no se puede seleccionar;
+corregir la ficha en BC y crear una solicitud nueva. El cliente y su tipo siguen
+siendo solo lectura. Nunca se toma su CIF como DNI del firmante.
+
+Antes de mostrar el formulario de firma se valida Nombre/DNI y se confirma el correo.
+El servidor bloquea también la subida de dibujos y los valores de firma enviados
+sin esta confirmación. Al completar vuelve a comprobar DNI y destinatarios.
+Cambiar de autorizado borra el dibujo y la confirmación anterior. No se modifican
+PDF ni auditorías de documentos ya completados.
+
+### Configuración de colocación
+
+Archivo por defecto: `config/dielca_bc_layouts.json`. Se puede usar otro JSON mediante
+`DIELCA_BC_LAYOUTS_FILE`, montado de solo lectura y accesible al usuario del contenedor.
+No contiene credenciales. El Dockerfile ya incluye la carpeta config; no es necesario
+cambiarlo. La pila actual no necesita cambios para el archivo incluido.
+
+Orden: `reports[reportId]`, después `document_types[documentType]`. Si ambos identificadores
+faltan, se conserva el diseño de la plantilla permitida para clientes antiguos.
+Si se informa un identificador pero no hay perfil aplicable, se rechaza el import con
+`REPORT_LAYOUT_NOT_CONFIGURED`. No se estima una posición genérica.
+
+Cada perfil contiene `box: {x,y,w,h}` en fracciones de página con origen arriba a la
+izquierda y `fields` con Nombre, DNI/NIF y Firma. Las áreas de esos campos son fracciones
+de la caja. Se validan límites y solapamientos. `font_size` se expresa en puntos.
+Los tres campos se colocan en la última página. El nombre y DNI quedan en una línea:
+se reduce la fuente si es necesario sin recortar su valor; si no cabe, se rechaza.
+Los nombres no admiten saltos de línea. Revisar legibilidad de nombres muy largos.
+
+Perfil 50000 / PostedShipment: A5 horizontal, caja libre inferior izquierda debajo
+de las cifras de impuestos, según la ubicación indicada por el usuario. Nombre y
+DNI a la izquierda; firma a la derecha. Caja inicial: x=0.055, y=0.765, w=0.245, h=0.095.
+Las coordenadas proceden de la referencia visual: revisar sobre un PDF original
+anonimizado antes de publicar. No se ha guardado la imagen con datos de cliente.
+
+Informes 50002 (pedido) y 50001 (factura): no hay diseño anonimizado disponible para
+medir su caja. Se rechazan cuando no existe perfil/fallback propio. Añadir sus perfiles
+tras medirlos, sin reutilizar automáticamente el del albarán.
+
+Vista de revisión con datos ficticios (solo entorno aislado test/desarrollo):
+`bundle exec rails runner scripts/dielca_layout_preview.rb` genera
+`/tmp/dielca-layout-preview.pdf`. `PREVIEW_REPORT_ID` y `PREVIEW_OUTPUT` permiten elegir
+perfil y destino. No lee fichas, firmantes ni documentos reales; no escribe en la BD.
+
+### Copia y retorno al conector
+
+Propuesta: correo del autorizado elegido, o correo del cliente. Se confirma mediante
+«Es correcto» o se cambia; si está vacío, introducir uno válido. Se pueden añadir
+cuatro destinatarios adicionales (cinco en total). Solo `copyEmailRequired=false`
+permite «Sin copia por correo». El servidor valida formato, cantidad y ausencia de
+inyección de cabeceras. Los adicionales se envían como BCC para no revelar direcciones.
+
+Se guarda `submitter.metadata.dielca_copy_email`: `confirmed`, `confirmed_at`, `skipped`,
+`primary`, `changed`, `additional`, `recipients` y `status`. Se devuelve también en
+`GET /api/dielca/v1/pdf_imports/:request_id`, autenticado con el usuario técnico.
+No poner este contenido ni enlaces de firma en logs/Git. El endpoint de firma exige
+el token del envío, autorización del formulario y CSRF; no es una API técnica para BC.
+
+Tras generar PDF y auditoría, el job de copia usa el SMTP existente configurado por
+entorno o ajustes nativos del portal. Adjunta PDFs firmados y auditoría separada;
+asunto `Documento firmado: <tipo> <nº>`. No duplica el correo nativo para estos imports.
+No se ha comprobado ni modificado SMTP en producción y no se han enviado correos reales.
+
+Estados: `pending` (en cola), `sending`, `sent` (SMTP aceptó; no implica recepción),
+`connector_pending` (sin SMTP), `skipped`, `failed` (requiere revisión). Con
+`connector_pending`, el conector debe leer los destinatarios y asumir el envío,
+evitar duplicados y registrar su resultado en su propio sistema. Este cambio del
+portal no implementa transporte de correo dentro del repositorio del conector.
+
+No se reenvían jobs duplicados. Un fallo SMTP o interrupción durante `sending` requiere
+conciliación manual antes de reintentar: no se promete entrega exactamente una vez.
+El procesamiento usa el worker ya existente; comprobar su ejecución tras un despliegue
+revisado. No habilitar SMTP, cambiar proxy ni desplegar como efecto de esta edición.
+
+Verificación BC 0.4: 128 ejemplos RSpec del importador, identidad, layouts, correo y
+regresiones API/OIDC; 32 pruebas JavaScript. Se usaron SQLite y storage ficticios en
+contenedor sin red, puertos ni volúmenes de producción. PDFs A5 horizontales de una
+y tres páginas se renderizan con los campos en la última página. La vista ficticia
+permite revisar la caja; no equivale a validar el diseño real de BC. Webpack compilado.

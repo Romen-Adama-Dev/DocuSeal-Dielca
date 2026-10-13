@@ -10,6 +10,7 @@ Rails.application.routes.draw do
   end
 
   patch '/dielca/signing/authorized_signer', to: 'dielca/authorized_signers#update', as: :dielca_authorized_signer
+  post '/dielca/signing/confirmation', to: 'dielca/signing_confirmations#create', as: :dielca_signing_confirmation
 
   root 'dashboard#index'
 

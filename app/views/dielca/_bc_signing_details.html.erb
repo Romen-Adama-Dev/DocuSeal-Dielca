@@ -42,4 +42,13 @@
     <p>Selecciona al autorizado para rellenar sus datos y continuar con la firma.</p>
   <% end %>
   <% end %>
+  <% if record.free_signing? || person %>
+    <% if Dielca::SigningConfirmation.ready?(record, submitter) %>
+      <% copy = submitter.metadata['dielca_copy_email'] %>
+      <p><%= copy['skipped'] ? 'Sin copia por correo.' : "Copia confirmada: #{copy['recipients'].join(', ')}" %></p>
+      <p>Identidad validada. Ya puede firmar el documento.</p>
+    <% else %>
+      <%= render 'dielca/signing_confirmation', record:, submitter: %>
+    <% end %>
+  <% end %>
 </section>

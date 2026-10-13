@@ -1,8 +1,10 @@
 # frozen_string_literal: true
 
-Rails.application.config.filter_parameters += %i[pdf signer_name customer_name customer authorized_signers signing_token sign_url signing_url values]
+Rails.application.config.filter_parameters += %i[pdf signer_name personal_id customer_name customer authorized_signers signing_token sign_url signing_url values primary_email additional_emails customerEmail customer_email]
 
 Rails.application.config.to_prepare do
   singleton = Submitters::SubmitValues.singleton_class
   singleton.prepend(Dielca::SignedIdentity) unless singleton.ancestors.include?(Dielca::SignedIdentity)
+  SubmitFormUploadController.prepend(Dielca::SignatureUploadGuard) unless SubmitFormUploadController.ancestors.include?(Dielca::SignatureUploadGuard)
+  ProcessSubmitterCompletionJob.prepend(Dielca::CompletionCopy) unless ProcessSubmitterCompletionJob.ancestors.include?(Dielca::CompletionCopy)
 end

@@ -13,14 +13,17 @@ module Dielca
         person = record.authorized_signers.find { |s| s['id'] == person_id }
         raise Submitters::SubmitValues::ValidationError, 'Selecciona un autorizado de este cliente.' unless person
 
+        document = validated_document!(person['id_document_no'])
+
         # A change of person must require a new signature, never retain a previous drawing.
         submitter.values = {} if record.selected_signer_id != person['id']
         submitter.name = person['name']
         submitter.values[record.name_field_uuid] = person['name']
-        submitter.values[record.id_field_uuid] = person['id_document_no']
+        submitter.values[record.id_field_uuid] = document
         submitter.metadata = submitter.metadata.merge('authorized_person_id' => person['id'],
                                                       'signer_contact_number' => person['contact_number'],
                                                       'signer_job_title' => person['job_title'])
+        submitter.metadata = submitter.metadata.except('dielca_copy_email') if record.selected_signer_id != person['id']
         submitter.save!
         record.update!(selected_signer_id: person['id'])
       end
@@ -40,24 +43,32 @@ module Dielca
         [[record.name_field_uuid, 100, 'Nombre obligatorio'],
          [record.id_field_uuid, 30, 'DNI/NIF obligatorio']].each do |uuid, max_length, message|
           value = submitter.values[uuid]
-          unless value.is_a?(String) && value.strip.present? && value.length <= max_length && value.exclude?("\0")
+          unless value.is_a?(String) && value.strip.present? && value.length <= max_length &&
+                 value.exclude?("\0") && !value.match?(/[\r\n]/)
             raise Submitters::SubmitValues::ValidationError, message
           end
         end
-        document = SpanishIdentity.normalize(submitter.values[record.id_field_uuid])
-        error = SpanishIdentity.error(document)
-        raise Submitters::SubmitValues::ValidationError, error if error
-
-        submitter.values[record.id_field_uuid] = document
+        submitter.values[record.id_field_uuid] = validated_document!(submitter.values[record.id_field_uuid])
         return
       end
       person = record.authorized_signers.find { |s| s['id'] == record.selected_signer_id }
+      document = SpanishIdentity.normalize(submitter.values[record.id_field_uuid])
       unless person && submitter.values[record.name_field_uuid] == person['name'] &&
-             submitter.values[record.id_field_uuid] == person['id_document_no']
+             document == SpanishIdentity.normalize(person['id_document_no'])
         raise Submitters::SubmitValues::ValidationError, 'Selecciona un autorizado antes de firmar.'
       end
 
+      submitter.values[record.id_field_uuid] = validated_document!(person['id_document_no'])
+
       person
+    end
+
+    def validated_document!(value)
+      document = SpanishIdentity.normalize(value)
+      error = SpanishIdentity.error(document)
+      raise Submitters::SubmitValues::ValidationError, error if error
+
+      document
     end
   end
 end

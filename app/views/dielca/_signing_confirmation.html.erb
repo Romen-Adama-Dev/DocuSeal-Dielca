@@ -1,0 +1,23 @@
+<% proposed = Dielca::CopyEmail.proposed(record) %>
+<dielca-signing-confirmation>
+  <%= form_with url: dielca_signing_confirmation_path, data: { turbo: false }, class: 'space-y-3' do |form| %>
+    <%= form.hidden_field :signing_token, value: submitter.slug %>
+    <% if record.free_signing? %>
+      <%= form.label :signer_name, 'Nombre del firmante', class: 'block font-semibold' %>
+      <%= form.text_field :signer_name, value: submitter.values[record.name_field_uuid], required: true, maxlength: 100, class: 'input input-bordered w-full' %>
+      <%= form.label :personal_id, 'DNI/NIE', class: 'block font-semibold' %>
+      <%= form.text_field :personal_id, value: submitter.values[record.id_field_uuid], required: true, maxlength: 30, class: 'input input-bordered w-full', data: { personal_id: true } %>
+    <% end %>
+    <p>Enviaremos el documento firmado y la auditoría a: <strong><%= proposed.presence || 'indique un correo' %></strong></p>
+    <%= form.label :primary_email, 'Correo para la copia', class: 'block font-semibold' %>
+    <%= form.email_field :primary_email, value: proposed, required: true, maxlength: 254, readonly: proposed.present?, class: 'input input-bordered w-full' %>
+    <button type="button" data-change-email class="btn btn-sm">Cambiar</button>
+    <div data-additional-emails></div>
+    <button type="button" data-add-email class="btn btn-sm">Añadir otro destinatario</button>
+    <%= form.button 'Es correcto', name: 'copy_choice', value: 'confirm', class: 'btn btn-neutral' %>
+    <% unless Dielca::CopyEmail.required?(record) %>
+      <%= form.button 'Sin copia por correo', name: 'copy_choice', value: 'none', formnovalidate: true, class: 'btn btn-outline' %>
+    <% end %>
+    <p data-confirmation-status role="status" aria-live="polite"></p>
+  <% end %>
+</dielca-signing-confirmation>

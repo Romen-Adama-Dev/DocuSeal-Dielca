@@ -6,7 +6,7 @@ module DielcaHelper
     return fields unless Dielca::PdfImport.table_exists?
 
     record = Dielca::PdfImport.find_by(submitter_id: submitter.id, submission_id: submitter.submission_id)
-    return fields unless record&.free_signing?
+    return fields unless record
 
     fields.map do |field|
       next field unless field['uuid'] == record.id_field_uuid
