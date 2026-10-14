@@ -1,10 +1,12 @@
 # Facturas 50001: perfil por tamaño del PDF
 
-Estado: implementación local para revisión, sin despliegue ni push.
+Perfil de facturas 50001: implementación y referencia de colocación.
 
-El usuario indicó usar como referencia el albarán para facturas A5 y el pedido
-para facturas A4. `config/dielca_bc_layouts.json` define para `reports["50001"]`
-un selector `paper_sizes`: A5 referencia el informe 50000 y A4 referencia 50002.
+El usuario indicó inicialmente usar el albarán para A5 y el pedido para A4;
+después ajustó los tres campos en DocuSeal y pidió usar esa factura como referencia. `config/dielca_bc_layouts.json` define para `reports["50001"]`
+un selector `paper_sizes`: A5 referencia el informe 50000 y A4 contiene un perfil propio, tomado de la
+factura editada por el usuario en DocuSeal. El pedido 50002 conserva sus posiciones. DNI/NIF usa la misma coordenada x,
+anchura, altura y fuente que Nombre; conserva su fila debajo.
 No se añade un fallback global para otros informes de `PostedInvoice`.
 
 `ReportLayout.for_page` identifica A5 o A4 a partir de las dimensiones en puntos
@@ -35,10 +37,12 @@ tamaño no admitido, configuración recursiva, importación libre y autorizada d
 una o tres páginas (con páginas previas de otro tamaño), coordenadas correctas,
 ubicación en última página e idempotencia.
 
-La lectura del PDF de BC devolvió HTTP_404 durante esta tarea, por lo que el diseño
-real queda pendiente de revisión visual. No se han incluido PDF ni datos personales
-en Git. Tras revisar y autorizar el despliegue en otro paso, se podrá reintentar en
-BC la solicitud que quedó en Error. El despliegue actual todavía carece del perfil.
+Se copiaron únicamente coordenadas y tamaños de fuente de los campos editados
+por el usuario, sin datos de cliente ni valores de firma. No se han incluido PDF ni datos personales
+en Git. Esta revisión sustituye la referencia inicial al pedido A4 por un perfil propio
+de factura. Cada envío creado conserva sus áreas; modificar el perfil no recoloca
+los envíos existentes ni sus documentos firmados. La versión activa se registra
+en el informe de despliegue del servidor.
 
 Verificación completada: 106 ejemplos RSpec de servicios DIELCA e importación
 sin fallos, en PostgreSQL/storage aislados. Generadas y revisadas las vistas

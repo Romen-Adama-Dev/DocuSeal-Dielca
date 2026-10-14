@@ -231,11 +231,13 @@ x=0.09, y=0.792, w=0.55, h=0.018; DNI/NIF: x=0.09, y=0.832, w=0.22, h=0.019;
 Firma: x=0.34, y=0.815, w=0.33, h=0.05. Se mantienen en la última página.
 
 Informe 50001 / PostedInvoice: por indicación del usuario se selecciona el perfil
-según el tamaño de la última página del PDF: A5 usa el albarán 50000 y A4 usa el
-pedido 50002. Se admiten ambas orientaciones y hasta 3 puntos de diferencia por
+según el tamaño de la última página del PDF: A5 usa el albarán 50000 y A4 usa un
+perfil propio con las posiciones editadas por el usuario en DocuSeal. El diseño
+del pedido 50002 se conserva. Se admiten ambas orientaciones y hasta 3 puntos de diferencia por
 dimensión para el redondeo habitual del PDF. Otros tamaños se rechazan con
 REPORT_LAYOUT_NOT_CONFIGURED. El selector se resuelve antes de crear el envío;
-las facturas ya importadas conservan sus campos. Cambio pendiente de despliegue.
+las facturas ya importadas conservan sus campos. La versión activa se registra
+en el informe de despliegue del servidor.
 
 Vista de revisión con datos ficticios (solo entorno aislado test/desarrollo):
 `bundle exec rails runner scripts/dielca_layout_preview.rb` genera

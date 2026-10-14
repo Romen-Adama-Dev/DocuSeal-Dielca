@@ -21,13 +21,18 @@ RSpec.describe Dielca::ReportLayout do
     end
   end
 
-  it 'uses shipment placement for A5 invoices and order placement for A4 invoices' do
+  it 'uses shipment placement for A5 invoices and the edited invoice placement for A4' do
     invoice = described_class.load(report_id: '50001', document_type: 'PostedInvoice')
     expect(described_class.for_page(invoice, [595.28, 419.53])).to eq(profile)
     expect(described_class.for_page(invoice, [420, 595])).to eq(profile)
-    order = described_class.load(report_id: '50002', document_type: 'SalesOrder')
-    expect(described_class.for_page(invoice, [595.28, 841.89])).to eq(order)
-    expect(described_class.for_page(invoice, [842, 595])).to eq(order)
+    edited = invoice['paper_sizes']['A4']
+    expect(described_class.for_page(invoice, [595.28, 841.89])).to eq(edited)
+    expect(described_class.for_page(invoice, [842, 595])).to eq(edited)
+    expect(fields(edited, page: 2).map { |field| field['areas'].first.slice('x', 'y', 'w', 'h') }).to eq([
+      { 'x' => 0.08219512195121952, 'y' => 0.8133804714530541, 'w' => 0.28853658536585364, 'h' => 0.019033321650394175 },
+      { 'x' => 0.08219512195121952, 'y' => 0.8395723077918018, 'w' => 0.28853658536585364, 'h' => 0.019033321650394175 },
+      { 'x' => 0.395609756097561, 'y' => 0.7998210763443526, 'w' => 0.28439024390243905, 'h' => 0.06983409606944047 }
+    ])
     expect(described_class.for_page(profile, [595.28, 419.53])).to eq(profile)
   end
 

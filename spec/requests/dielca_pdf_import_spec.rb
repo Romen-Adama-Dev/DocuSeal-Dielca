@@ -520,7 +520,7 @@ RSpec.describe 'DIELCA original BC PDF API' do
         end
 
         %w[free authorized].each do |mode|
-          it "imports in #{mode} mode using the approved #{paper == 'A5' ? 'shipment' : 'order'} positions" do
+          it "imports in #{mode} mode using the approved #{paper == 'A5' ? 'shipment' : 'edited invoice'} positions" do
             params = { signer_mode: mode, reportId: '50001', documentType: 'PostedInvoice',
                        document_number: 'FAC-DEMO' }
             params[:authorized_signers] = '[]' if mode == 'free'
@@ -532,8 +532,8 @@ RSpec.describe 'DIELCA original BC PDF API' do
             fields = record.submission.template.fields
             expect(fields.flat_map { |field| field['areas'] }.pluck('page')).to all(eq(pages - 1))
             signature = fields.find { |field| field['name'] == 'Firma' }['areas'].sole
-            expect(signature['x']).to be_within(0.000001).of(paper == 'A5' ? 0.202 : 0.34)
-            expect(signature['y']).to be_within(0.000001).of(paper == 'A5' ? 0.7707 : 0.815)
+            expect(signature['x']).to be_within(0.000001).of(paper == 'A5' ? 0.202 : 0.395609756097561)
+            expect(signature['y']).to be_within(0.000001).of(paper == 'A5' ? 0.7707 : 0.7998210763443526)
             expect(fields.select { |field| field['type'] == 'text' }.pluck('readonly')).to all(eq(mode == 'authorized'))
             expect { import(**params) }.not_to change(Submission, :count)
             expect(response).to have_http_status(:created)

@@ -21,8 +21,11 @@ module Dielca
       selector = profile.fetch('paper_sizes')[format]
       raise PdfSubmission::Error, 'REPORT_LAYOUT_NOT_CONFIGURED' unless selector
 
-      selected = load(report_id: selector.fetch('report_id'), document_type: '')
-      raise PdfSubmission::Error, 'LAYOUT_CONFIGURATION_INVALID' if selected.nil? || selected.key?('paper_sizes')
+      selected = selector.key?('report_id') ? load(report_id: selector['report_id'], document_type: '') : selector
+      unless selected.is_a?(Hash) && selected['box'].is_a?(Hash) && selected['fields'].is_a?(Hash) &&
+             !selected.key?('paper_sizes')
+        raise PdfSubmission::Error, 'LAYOUT_CONFIGURATION_INVALID'
+      end
 
       selected
     rescue KeyError, NoMethodError, TypeError
