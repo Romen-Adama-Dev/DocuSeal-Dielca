@@ -508,6 +508,57 @@ RSpec.describe 'DIELCA original BC PDF API' do
     end
   end
 
+  { 'A5' => [595.28, 419.53], 'A4' => [595.28, 841.89] }.each do |paper, size|
+    [1, 3].each do |pages|
+      context "with a #{pages}-page invoice ending in #{paper}" do
+        let(:bytes) do
+          document = HexaPDF::Document.new
+          other = paper == 'A5' ? [595.28, 841.89] : [595.28, 419.53]
+          (pages - 1).times { document.pages.add([0, 0, *other]) }
+          document.pages.add([0, 0, *size])
+          StringIO.new.tap { |io| document.write(io) }.string
+        end
+
+        %w[free authorized].each do |mode|
+          it "imports in #{mode} mode using the approved #{paper == 'A5' ? 'shipment' : 'order'} positions" do
+            params = { signer_mode: mode, reportId: '50001', documentType: 'PostedInvoice',
+                       document_number: 'FAC-DEMO' }
+            params[:authorized_signers] = '[]' if mode == 'free'
+            import(**params)
+            expect(response).to have_http_status(:created)
+            record = Dielca::PdfImport.find_by!(account:, request_id:)
+            expect(record.signer_mode).to eq(mode)
+            expect(record.submitter.metadata).to include('report_id' => '50001', 'document_type' => 'PostedInvoice')
+            fields = record.submission.template.fields
+            expect(fields.flat_map { |field| field['areas'] }.pluck('page')).to all(eq(pages - 1))
+            signature = fields.find { |field| field['name'] == 'Firma' }['areas'].sole
+            expect(signature['x']).to be_within(0.000001).of(paper == 'A5' ? 0.202 : 0.34)
+            expect(signature['y']).to be_within(0.000001).of(paper == 'A5' ? 0.7707 : 0.815)
+            expect(fields.select { |field| field['type'] == 'text' }.pluck('readonly')).to all(eq(mode == 'authorized'))
+            expect { import(**params) }.not_to change(Submission, :count)
+            expect(response).to have_http_status(:created)
+            expect(response.parsed_body['submission_id']).to eq(record.submission_id)
+          end
+        end
+      end
+    end
+  end
+
+  context 'with an invoice in an unsupported paper size' do
+    let(:bytes) do
+      document = HexaPDF::Document.new
+      document.pages.add([0, 0, 612, 792])
+      StringIO.new.tap { |io| document.write(io) }.string
+    end
+
+    it 'rejects the import before creating a submission' do
+      expect { import(reportId: '50001', documentType: 'PostedInvoice') }.not_to change(Submission, :count)
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(response.parsed_body.dig('error', 'code')).to eq('REPORT_LAYOUT_NOT_CONFIGURED')
+      expect(Dielca::PdfImport.find_by(account:, request_id:)).to be_nil
+    end
+  end
+
   context 'with more than sixteen pages' do
     let(:bytes) do
       document = HexaPDF::Document.new

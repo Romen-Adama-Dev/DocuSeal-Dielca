@@ -4,6 +4,31 @@ module Dielca
   module ReportLayout
     module_function
 
+    PAPER_SIZES = { 'A5' => [419.53, 595.28], 'A4' => [595.28, 841.89] }.freeze
+
+    def for_page(profile, page_size)
+      return profile unless profile.key?('paper_sizes')
+
+      unless page_size.is_a?(Array) && page_size.size == 2 &&
+             page_size.all? { |value| value.is_a?(Numeric) && value.finite? && value.positive? }
+        raise PdfSubmission::Error, 'PDF_GEOMETRY_INVALID'
+      end
+
+      dimensions = page_size.sort
+      format = PAPER_SIZES.find do |_name, size|
+        dimensions.zip(size).all? { |actual, expected| (actual - expected).abs <= 3 }
+      end&.first
+      selector = profile.fetch('paper_sizes')[format]
+      raise PdfSubmission::Error, 'REPORT_LAYOUT_NOT_CONFIGURED' unless selector
+
+      selected = load(report_id: selector.fetch('report_id'), document_type: '')
+      raise PdfSubmission::Error, 'LAYOUT_CONFIGURATION_INVALID' if selected.nil? || selected.key?('paper_sizes')
+
+      selected
+    rescue KeyError, NoMethodError, TypeError
+      raise PdfSubmission::Error, 'LAYOUT_CONFIGURATION_INVALID'
+    end
+
     def load(report_id:, document_type:)
       return if report_id.blank? && document_type.blank?
 

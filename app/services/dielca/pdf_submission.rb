@@ -37,6 +37,9 @@ module Dielca
       raise Error.new('PDF_PAGE_LIMIT', :content_too_large) unless doc.page_count.between?(1, MAX_PAGES)
 
       validate_geometry!(doc)
+      if @report_profile
+        @report_profile = ReportLayout.for_page(@report_profile, doc.page_size(doc.page_count - 1))
+      end
 
       # Insertion and submission creation commit together. The unique index also
       # prevents two concurrent POSTs from committing different submissions.

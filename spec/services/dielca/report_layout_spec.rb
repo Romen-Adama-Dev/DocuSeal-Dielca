@@ -14,11 +14,38 @@ RSpec.describe Dielca::ReportLayout do
     expect(described_class.load(report_id: '', document_type: '')).to be_nil
   end
 
-  %w[50001].each do |report|
+  %w[59999].each do |report|
     it "refuses unmeasured report #{report} instead of stamping a guessed box" do
       expect { described_class.load(report_id: report, document_type: '') }
         .to raise_error(Dielca::PdfSubmission::Error) { |error| expect(error.code).to eq('REPORT_LAYOUT_NOT_CONFIGURED') }
     end
+  end
+
+  it 'uses shipment placement for A5 invoices and order placement for A4 invoices' do
+    invoice = described_class.load(report_id: '50001', document_type: 'PostedInvoice')
+    expect(described_class.for_page(invoice, [595.28, 419.53])).to eq(profile)
+    expect(described_class.for_page(invoice, [420, 595])).to eq(profile)
+    order = described_class.load(report_id: '50002', document_type: 'SalesOrder')
+    expect(described_class.for_page(invoice, [595.28, 841.89])).to eq(order)
+    expect(described_class.for_page(invoice, [842, 595])).to eq(order)
+    expect(described_class.for_page(profile, [595.28, 419.53])).to eq(profile)
+  end
+
+  it 'refuses unsupported invoice paper sizes and invalid geometry' do
+    invoice = described_class.load(report_id: '50001', document_type: 'PostedInvoice')
+    expect { described_class.for_page(invoice, [612, 792]) }
+      .to raise_error(Dielca::PdfSubmission::Error) { |error| expect(error.code).to eq('REPORT_LAYOUT_NOT_CONFIGURED') }
+    expect { described_class.for_page(invoice, [Float::NAN, 595]) }
+      .to raise_error(Dielca::PdfSubmission::Error) { |error| expect(error.code).to eq('PDF_GEOMETRY_INVALID') }
+    expect { described_class.for_page(invoice, nil) }
+      .to raise_error(Dielca::PdfSubmission::Error) { |error| expect(error.code).to eq('PDF_GEOMETRY_INVALID') }
+  end
+
+  it 'refuses missing references and recursive paper selectors' do
+    expect { described_class.for_page({ 'paper_sizes' => { 'A5' => {} } }, [595, 420]) }
+      .to raise_error(Dielca::PdfSubmission::Error) { |error| expect(error.code).to eq('LAYOUT_CONFIGURATION_INVALID') }
+    expect { described_class.for_page({ 'paper_sizes' => { 'A5' => { 'report_id' => '50001' } } }, [595, 420]) }
+      .to raise_error(Dielca::PdfSubmission::Error) { |error| expect(error.code).to eq('LAYOUT_CONFIGURATION_INVALID') }
   end
 
   it 'preserves the approved order placement on the last page' do

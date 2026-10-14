@@ -4,15 +4,19 @@
 # bundle exec rails runner scripts/dielca_layout_preview.rb
 raise 'Use test or development' unless Rails.env.local?
 
-profile = Dielca::ReportLayout.load(report_id: ENV.fetch('PREVIEW_REPORT_ID', '50000'), document_type: '')
+report_id = ENV.fetch('PREVIEW_REPORT_ID', '50000')
+size = { 'A5' => [595.28, 419.53], 'A4' => [595.28, 841.89] }.fetch(ENV.fetch('PREVIEW_PAPER_SIZE', 'A5'))
+profile = Dielca::ReportLayout.load(report_id:, document_type: '')
+profile = Dielca::ReportLayout.for_page(profile, size)
 fields = Dielca::ReportLayout.fields(profile, document_uuid: 'demo', page: 0, role_uuid: 'demo', signer_mode: 'free')
 pdf = HexaPDF::Document.new
-page = pdf.pages.add([0, 0, 595.28, 419.53]) # A5 landscape
+page = pdf.pages.add([0, 0, *size])
 canvas = page.canvas
 width = page.box.width
 height = page.box.height
 canvas.font('Helvetica', size: 12)
-canvas.text('ALBARAN FICTICIO - REVISION DEL DISENO', at: [190, height - 28])
+title = report_id == '50001' ? 'FACTURA FICTICIA' : 'ALBARAN FICTICIO'
+canvas.text("#{title} - REVISION DEL DISENO", at: [190, height - 28])
 canvas.font('Helvetica', size: 8)
 canvas.text('ARTICULO         DENOMINACION                                      UNIDADES', at: [30, height - 148])
 canvas.text('DEMO             Producto ficticio                                     1', at: [30, height - 168])
