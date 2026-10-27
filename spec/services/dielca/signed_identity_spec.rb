@@ -44,4 +44,43 @@ RSpec.describe Dielca::SignedIdentity do
     end.to raise_error(Submitters::SubmitValues::ValidationError, 'Selecciona un autorizado antes de firmar.')
     expect(submitter.completed_at).to be_nil
   end
+
+  [
+    ['2026-10-27 09:26:00 UTC', "27/10/2026\n09:26:00"],
+    ['2026-07-15 09:26:00 UTC', "15/07/2026\n10:26:00"]
+  ].each do |instant, expected|
+    it "stamps the server completion time in Canary time at #{instant}" do
+      register_import
+      field = template.fields.first.deep_dup.merge('uuid' => 'timestamp', 'name' => 'Fecha y hora de firma',
+                                                  'required' => false, 'readonly' => true,
+                                                  'preferences' => { 'dielca_signing_timestamp' => true })
+      template.update!(fields: template.fields + [field])
+      submission.update!(template_fields: template.fields)
+      submitter.values = { field_uuid => 'Nombre escrito', id_uuid => '12345678Z', 'timestamp' => 'forged client date' }
+      travel_to Time.parse(instant) do
+        Submitters::SubmitValues.assign_completed_attributes(submitter, request, validate_required: false)
+        expect(submitter.completed_at).to eq(Time.current)
+        expect(submitter.values['timestamp']).to eq(expected)
+      end
+      # Rendering or mail generation at a later date does not change the stamped value.
+      travel_to Time.parse(instant) + 3.days do
+        Dielca::SigningTimestamp.assign!(submitter)
+        expect(submitter.values['timestamp']).to eq(expected)
+      end
+    end
+  end
+
+  it 'does not stamp before completion or add timestamp fields to older layouts' do
+    field = template.fields.first.deep_dup.merge('uuid' => 'timestamp',
+                                               'preferences' => { 'dielca_signing_timestamp' => true })
+    template.update!(fields: [field])
+    Dielca::SigningTimestamp.assign!(submitter)
+    expect(submitter.values).not_to have_key('timestamp')
+    template.update!(fields: [])
+    submission.update!(template_fields: [])
+    submitter.completed_at = Time.current
+    Dielca::SigningTimestamp.assign!(submitter)
+    expect(submitter.values).not_to have_key('timestamp')
+  end
+
 end

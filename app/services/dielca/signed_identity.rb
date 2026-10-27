@@ -51,7 +51,9 @@ module Dielca
           SingleLineIdentity.fit!(submitter)
         end
       end
-      super
+      result = super
+      SigningTimestamp.assign!(submitter) if record
+      result
     end
   end
 end

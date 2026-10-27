@@ -8,3 +8,8 @@ Rails.application.config.to_prepare do
   SubmitFormUploadController.prepend(Dielca::SignatureUploadGuard) unless SubmitFormUploadController.ancestors.include?(Dielca::SignatureUploadGuard)
   ProcessSubmitterCompletionJob.prepend(Dielca::CompletionCopy) unless ProcessSubmitterCompletionJob.ancestors.include?(Dielca::CompletionCopy)
 end
+
+Rails.application.config.to_prepare do
+  generator = Submissions::GenerateResultAttachments.singleton_class
+  generator.prepend(Dielca::StampLogo) unless generator.ancestors.include?(Dielca::StampLogo)
+end

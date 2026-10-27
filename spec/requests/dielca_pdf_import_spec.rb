@@ -491,19 +491,108 @@ RSpec.describe 'DIELCA original BC PDF API' do
           completed: 'true', values: { signature['uuid'] => drawing.uuid }
         }
         expect(response).to have_http_status(:ok)
+        timestamp = record.submission.template.fields.find do |field|
+          field.dig('preferences', 'dielca_signing_timestamp')
+        end
+        expect(record.submitter.reload.values[timestamp['uuid']])
+          .to eq(record.submitter.completed_at.in_time_zone('Atlantic/Canary').strftime("%d/%m/%Y\n%H:%M:%S"))
         generated = Submissions::GenerateResultAttachments.generate_pdfs(record.submitter.reload).values.first
         expect(generated.pages.count).to eq(pages)
-        expect(generated.pages[pages - 1][:Resources][:XObject]).to be_present
+        expect(generated.pages[pages - 1][:Resources][:XObject].each.count).to eq(2)
         generated.pages.to_a[0...-1].each { |page| expect(page[:Resources][:XObject]).to be_blank }
         fields = record.submission.reload.template_fields
         expect(fields.flat_map { |field| field['areas'] }.pluck('page')).to all(eq(pages - 1))
         pdf = HexaPDF::Document.new
         font = pdf.fonts.add('Helvetica', custom_encoding: true)
-        fields.select { |field| field['type'] == 'text' }.each do |field|
+        fields.select { |field| field.dig('preferences', 'dielca_single_line') }.each do |field|
           area = field['areas'].first
           expect(Dielca::SingleLineIdentity.fits?(record.submitter.reload.values[field['uuid']], font,
             field.dig('preferences', 'font_size'), area['w'] * 595.28 - 1, area['h'] * 419.53)).to be(true)
         end
+      end
+    end
+  end
+
+  %w[50000 50001 50002].product([1, 3]).each do |report, pages|
+    context "with a #{pages}-page A4 report #{report} using the latest placement" do
+      let(:bytes) do
+        pdf = HexaPDF::Document.new
+        pages.times do
+          page = pdf.pages.add([0, 0, 595.28, 841.89])
+          canvas = page.canvas.font('Helvetica', size: 12)
+          canvas.text('DOCUMENTO FICTICIO - REVISION DE FIRMA', at: [40, 800])
+          canvas.font('Helvetica', size: 7).text('Fecha documento: 01/01/2026', at: [40, 730])
+          if report == '50000'
+            canvas.rectangle(28, 74.89, 363, 17).stroke
+            canvas.font('Helvetica', size: 6)
+            canvas.text('RECIBI CONFORME', at: [32, 81])
+            canvas.text('Nombre / cargo:', at: [104, 81])
+            canvas.text('DNI:', at: [207.85, 81])
+            canvas.text('Fecha:', at: [262.73, 81])
+            canvas.text('Firma:', at: [312, 81])
+          elsif report == '50001'
+            canvas.rectangle(28, 88, 195, 94).stroke
+            canvas.font('Helvetica', size: 7).text('RECIBI CONFORME', at: [32, 174])
+          else
+            canvas.rectangle(210.5, 77.5, 179.9, 94.8).stroke
+            canvas.font('Helvetica', size: 7)
+            canvas.text('CONFORME CLIENTE (FIRMA Y SELLO)', at: [216, 164])
+            canvas.text('Nombre: ____________  DNI: __________  Fecha:', at: [216, 82])
+          end
+        end
+        StringIO.new.tap { |io| pdf.write(io) }.string
+      end
+
+      it 'stamps server time in the date area and persists it for subsequent PDF generation' do
+        document_type = case report
+                        when '50000' then 'PostedShipment'
+                        when '50001' then 'PostedInvoice'
+                        else 'SalesOrder'
+                        end
+        import(signer_mode: 'free', authorized_signers: '[]', reportId: report, documentType: document_type)
+        expect(response).to have_http_status(:created)
+        record = Dielca::PdfImport.find_by!(account:, request_id:)
+        confirm_signing(record, signer_name: 'Persona Demo')
+        expect(response).to have_http_status(:ok)
+        fields = record.submission.template.fields
+        timestamp = fields.find { |field| field.dig('preferences', 'dielca_signing_timestamp') }
+        signature = fields.find { |field| field['type'] == 'signature' }
+        expect(timestamp).to include('readonly' => true, 'required' => false)
+        image = Vips::Image.black(180, 70).new_from_image([255, 255, 255])
+        png = image.draw_line([0, 0, 0], 10, 50, 45, 15).draw_line([0, 0, 0], 45, 15, 160, 55).pngsave_buffer
+        record.submitter.attachments.attach(io: StringIO.new(png), filename: 'fictitious-signature.png',
+                                            content_type: 'image/png')
+        drawing = record.submitter.attachments.last
+        # The date is readonly even if the browser tries to send its own value.
+        put submit_form_path(slug: record.submitter.slug), params: {
+          completed: 'true', values: { signature['uuid'] => drawing.uuid, timestamp['uuid'] => '01/01/2000' }
+        }
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(record.submitter.reload.completed_at).to be_nil
+        travel_to Time.utc(2026, 11, 1, 14, 5, 6) do
+          put submit_form_path(slug: record.submitter.slug), params: {
+            completed: 'true', values: { signature['uuid'] => drawing.uuid }
+          }
+          expect(response).to have_http_status(:ok)
+        end
+        expect(record.submitter.reload.values[timestamp['uuid']]).to eq("01/11/2026\n14:05:06")
+        expect(record.submission.reload.template_fields.flat_map { |field| field['areas'] }.pluck('page'))
+          .to all(eq(pages - 1))
+        result = Submissions::GenerateResultAttachments.generate_pdfs(record.submitter).values.first
+        expect(result.pages.count).to eq(pages)
+        images = result.pages[pages - 1][:Resources][:XObject].each.filter_map do |_key, object|
+          object if object[:Subtype] == :Image
+        end
+        expect(images.size).to eq(report == '50000' ? 1 : 2)
+        logo = images.find { |image| image[:Width] == 1617 && image[:Height] == 355 }
+        if report != '50000'
+          expect(logo).to be_present
+          expect(logo[:SMask]).to be_present
+        end
+
+        result.pages.to_a[0...-1].each { |page| expect(page[:Resources][:XObject]).to be_blank }
+        # Optional review artifact contains only the fictitious document generated above.
+        result.write("/tmp/dielca-#{report}-timestamp-demo.pdf") if ENV['DIELCA_TEST_PREVIEW'] == 'true' && pages == 1
       end
     end
   end
@@ -532,9 +621,10 @@ RSpec.describe 'DIELCA original BC PDF API' do
             fields = record.submission.template.fields
             expect(fields.flat_map { |field| field['areas'] }.pluck('page')).to all(eq(pages - 1))
             signature = fields.find { |field| field['name'] == 'Firma' }['areas'].sole
-            expect(signature['x']).to be_within(0.000001).of(paper == 'A5' ? 0.202 : 0.395609756097561)
-            expect(signature['y']).to be_within(0.000001).of(paper == 'A5' ? 0.7707 : 0.7998210763443526)
-            expect(fields.select { |field| field['type'] == 'text' }.pluck('readonly')).to all(eq(mode == 'authorized'))
+            expect(signature['x']).to be_within(0.000001).of(paper == 'A5' ? 0.195 : 0.395609756097561)
+            expect(signature['y']).to be_within(0.000001).of(paper == 'A5' ? 0.810 : 0.834)
+            identity = fields.select { |field| field.dig('preferences', 'dielca_single_line') }
+            expect(identity.pluck('readonly')).to all(eq(mode == 'authorized'))
             expect { import(**params) }.not_to change(Submission, :count)
             expect(response).to have_http_status(:created)
             expect(response.parsed_body['submission_id']).to eq(record.submission_id)

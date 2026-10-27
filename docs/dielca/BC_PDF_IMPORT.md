@@ -219,11 +219,11 @@ Los tres campos se colocan en la última página. El nombre y DNI quedan en una 
 se reduce la fuente si es necesario sin recortar su valor; si no cabe, se rechaza.
 Los nombres no admiten saltos de línea. Revisar legibilidad de nombres muy largos.
 
-Perfil 50000 / PostedShipment: A5 horizontal, caja libre inferior izquierda debajo
-de las cifras de impuestos, según la ubicación indicada por el usuario. Nombre y
-DNI a la izquierda; firma a la derecha. Caja inicial: x=0.055, y=0.765, w=0.245, h=0.095.
-Las coordenadas proceden de la referencia visual: revisar sobre un PDF original
-anonimizado antes de publicar. No se ha guardado la imagen con datos de cliente.
+Perfil 50000 / PostedShipment: selección A5/A4 por tamaño de última página. A5 horizontal: recuadro inferior izquierdo debajo
+de las cifras de impuestos. La revisión del 27/10/2026 toma las coordenadas del
+último albarán firmado: firma arriba y Nombre/DNI debajo; véase la sección de
+posiciones aprobadas y fecha/hora al final de este documento. No se guardan
+los PDFs reales ni sus datos personales en el repositorio.
 
 Informe 50002 / SalesOrder: por indicación expresa del usuario se conserva la
 posición ya utilizada en los pedidos anteriores de la plantilla 7. Nombre:
@@ -231,7 +231,7 @@ x=0.09, y=0.792, w=0.55, h=0.018; DNI/NIF: x=0.09, y=0.832, w=0.22, h=0.019;
 Firma: x=0.34, y=0.815, w=0.33, h=0.05. Se mantienen en la última página.
 
 Informe 50001 / PostedInvoice: por indicación del usuario se selecciona el perfil
-según el tamaño de la última página del PDF: A5 usa el albarán 50000 y A4 usa un
+según el tamaño de la última página del PDF: A5 usa la colocación A5 del albarán 50000 y A4 usa un
 perfil propio con las posiciones editadas por el usuario en DocuSeal. El diseño
 del pedido 50002 se conserva. Se admiten ambas orientaciones y hasta 3 puntos de diferencia por
 dimensión para el redondeo habitual del PDF. Otros tamaños se rechazan con
@@ -279,3 +279,98 @@ regresiones API/OIDC; 32 pruebas JavaScript. Se usaron SQLite y storage ficticio
 contenedor sin red, puertos ni volúmenes de producción. PDFs A5 horizontales de una
 y tres páginas se renderizan con los campos en la última página. La vista ficticia
 permite revisar la caja; no equivale a validar el diseño real de BC. Webpack compilado.
+
+### Pedido: posiciones aprobadas y fecha/hora de firma (27/10/2026)
+
+El perfil `50002` y el fallback `SalesOrder` toman las posiciones de Nombre,
+DNI/NIF y Firma del último pedido A4 firmado y editado en el portal. Se han copiado
+solo coordenadas y tamaños; no contiene PDF, identificadores ni datos del cliente.
+El perfil `50000` y el fallback `PostedShipment` incorporan también la colocación
+del albarán A5 firmado durante la revisión: firma encima de Nombre y DNI en el
+recuadro inferior izquierdo. Las facturas A5 que referencian ese perfil heredan
+sus posiciones; la colocación propia de factura A4 se conserva. En el albarán no
+se sustituye la fecha de documento de la cabecera por la hora de firma.
+
+El pedido añade `signed_at: {x,y,w,h,font_size,valign}` al perfil JSON, en fracciones de
+la misma caja `box`. Es opcional: omitirlo conserva los tres campos habituales.
+Se valida también su geometría y la ausencia de solapamientos. La plantilla de
+referencia autorizada sigue teniendo tres campos; el importador añade el cuarto
+campo generado cuando lo indica el perfil.
+
+La zona a la derecha del rótulo «Fecha» del documento revisado es demasiado
+estrecha para fecha y hora legibles. El sello ocupa dos líneas inmediatamente
+encima de ese rótulo, dentro del recuadro de conformidad, separado de Nombre,
+DNI y dibujo. Formato `dd/mm/aaaa` y `HH:mm:ss`, fuente de 6 puntos configurada
+por perfil. Nombre, DNI y fecha/hora usan la misma altura de caja, tamaño inicial
+y alineación inferior (`valign: bottom`); la última línea de la fecha/hora se alinea
+con los otros valores. La firma está centrada sobre las tres columnas. En albaranes,
+Nombre y DNI comparten también altura y alineación inferior. El perfil acepta
+`top`, `center` o `bottom`, con `center` por defecto para diseños anteriores.
+Aparece en la última página del PDF original, antes de la auditoría.
+
+`Fecha y hora de firma` es un campo de texto readonly, no obligatorio para el
+firmante. El servidor lo rellena al finalizar con el mismo `completed_at` que
+registra DocuSeal, convertido a `Atlantic/Canary` con cambio automático de hora
+estacional. No acepta el reloj ni un valor enviado por el navegador. El dato
+queda guardado en los valores del envío: generar el PDF o enviarlo por correo
+más tarde conserva la hora de firma, no estampa la hora de ese proceso posterior.
+
+Se aplica a nuevas importaciones después de desplegar esta revisión. No cambia
+plantillas/envíos ya creados ni reescribe documentos completados o sus auditorías.
+No añade migraciones, variables, secretos ni dependencias. No se ha desplegado
+ni se ha hecho push durante esta edición. Cualquier despliegue posterior requiere
+la revisión y copia consistente de SQLite y documentos acordadas.
+
+Validado con datos ficticios: pedidos A4 de una y tres páginas, fecha/hora de
+invierno y verano, rechazo de fecha forjada, persistencia posterior y renderizado
+sin solapamiento de las cuatro áreas.
+
+### Logotipo corporativo en la estampa
+
+Los perfiles admiten `logo: {x,y,w,h}` en fracciones de la caja `box`. La zona
+se comprueba contra Nombre, DNI, fecha y firma: no se permiten solapamientos.
+El pedido A4 y la factura A4 reservan una franja encima del dibujo; el albarán A5
+sitúa el logotipo a su lado, dentro del recuadro de conformidad. Las coordenadas
+se congelan al importar, junto a las áreas de la firma.
+
+Se utiliza `public/dielca/logo.png`, idéntico al PNG proporcionado por DIELCA.
+Se conserva completo, con transparencia, proporciones y colores, incluido el verde
+de Renovables. Se incorpora al resultado antes de la firma criptográfica del PDF.
+La firma manuscrita del cliente y los datos de identidad/fecha se conservan.
+No añade campos editables, servicios ni dependencias; no cambia el PDF original.
+Los diseños antiguos sin zona de logo siguen su renderizado anterior. Solo los
+envíos registrados por el importador DIELCA utilizan este añadido. Los documentos
+ya firmados y almacenados no se modifican. Cambio local pendiente de despliegue.
+
+
+### Albarán A4: fecha junto a «Fecha» en la franja de recibí (27/10/2026)
+
+La última revisión detectó un albarán 50000 en A4, distinto del A5 y del pedido
+50002. El 50000 y el fallback PostedShipment seleccionan ahora su perfil A4 o A5
+por el tamaño de la última página. Las facturas A5 conservan su perfil anterior.
+En A4, Nombre y DNI conservan las columnas observadas, con sus cajas alineadas; la firma se contiene
+en la franja inferior y la fecha/hora se coloca inmediatamente después del
+rótulo «Fecha», en dos líneas de 4 puntos por el ancho disponible. Caja:
+`x=0.480, y=0.8915, w=0.041, h=0.0175`, fracciones de página. No se modifica
+la fecha de documento de la cabecera. No se añade otro logo dentro de esa
+franja estrecha: el informe A4 ya incorpora el logotipo corporativo.
+
+La imagen activa observada era `docuseal-dielca:e09ce33d`, sin este estampado.
+Esta corrección requiere revisar y desplegar la nueva imagen antes de importar
+nuevos documentos. No modifica plantillas ya importadas ni PDFs ya firmados.
+Las pruebas usan albaranes y pedidos ficticios de una y tres páginas, comprueban
+la hora de finalización del servidor y rechazan una fecha impuesta desde el navegador.
+No hay migraciones ni cambios de infraestructura. Mantener copia consistente de
+SQLite y documentos antes del despliegue, según el procedimiento operativo.
+
+
+### Fecha de firma en todos los perfiles BC
+
+Se habilita el campo readonly de fecha/hora también en albaranes A5 y facturas
+A5/A4. En A5 se reserva espacio bajo el logo y junto al dibujo, encima de Nombre
+y DNI. En factura A4 se sitúa bajo las dos líneas de identidad. PostedInvoice
+admite el mismo selector que 50001 cuando BC no facilita reportId. Son posiciones
+iniciales configurables: revisar cada muestra con el diseño de informe correspondiente.
+Los cinco perfiles cubiertos son albarán A4/A5, factura A4/A5 y pedido A4; no se
+extrapola un pedido A5 sin disponer de su diseño. Todos usan la última página y
+la fecha de finalización persistida por el servidor en Atlantic/Canary.

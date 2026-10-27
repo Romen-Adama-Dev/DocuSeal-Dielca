@@ -49,30 +49,53 @@ module Dielca
       box = profile.fetch('box').slice('x', 'y', 'w', 'h')
       PdfLayout.validate_coordinates!(box)
       specs = { 'Nombre' => 'text', 'DNI/NIF' => 'text', 'Firma' => 'signature' }
-      areas = []
+      specs['Fecha y hora de firma'] = 'text' if profile['signed_at']
       result = specs.map do |name, type|
-        settings = profile.fetch('fields').fetch(name)
+        timestamp = name == 'Fecha y hora de firma'
+        settings = timestamp ? profile.fetch('signed_at') : profile.fetch('fields').fetch(name)
         local = settings.slice('x', 'y', 'w', 'h')
         PdfLayout.validate_coordinates!(local)
-        areas << local
         size = settings['font_size'] || 8
         raise PdfSubmission::Error, 'LAYOUT_INVALID' unless size.is_a?(Numeric) && size.between?(4, 16)
 
-        area = { 'x' => box['x'] + (local['x'] * box['w']), 'y' => box['y'] + (local['y'] * box['h']),
-                 'w' => local['w'] * box['w'], 'h' => local['h'] * box['h'],
-                 'page' => page, 'attachment_uuid' => document_uuid }
-        { 'uuid' => SecureRandom.uuid, 'name' => name, 'type' => type, 'required' => true,
-          'readonly' => type == 'text' && signer_mode == 'authorized', 'submitter_uuid' => role_uuid,
-          'areas' => [area], 'preferences' => { 'font_size' => size, 'font' => 'Helvetica', 'align' => 'left',
-                                                'valign' => 'center', 'dielca_single_line' => type == 'text' } }
+        area = page_area(box, local, document_uuid:, page:)
+        { 'uuid' => SecureRandom.uuid, 'name' => name, 'type' => type, 'required' => !timestamp,
+          'readonly' => timestamp || (type == 'text' && signer_mode == 'authorized'), 'submitter_uuid' => role_uuid,
+          'areas' => [area], 'preferences' => preferences(size, type, timestamp, settings) }
       end
-      if areas.combination(2).any? { |first, second| overlap?(first, second) }
-        raise PdfSubmission::Error, 'LAYOUT_FIELDS_OVERLAP'
-      end
+      attach_logo!(result, profile, box, document_uuid:, page:)
 
       result
     rescue KeyError, NoMethodError, TypeError
       raise PdfSubmission::Error, 'LAYOUT_CONFIGURATION_INVALID'
+    end
+
+    def page_area(box, local, document_uuid:, page:)
+      { 'x' => box['x'] + (local['x'] * box['w']), 'y' => box['y'] + (local['y'] * box['h']),
+        'w' => local['w'] * box['w'], 'h' => local['h'] * box['h'],
+        'page' => page, 'attachment_uuid' => document_uuid }
+    end
+
+    def attach_logo!(fields, profile, box, document_uuid:, page:)
+      areas = fields.flat_map { |field| field.fetch('areas') }
+      if profile['logo']
+        local = profile.fetch('logo').slice('x', 'y', 'w', 'h')
+        PdfLayout.validate_coordinates!(local)
+        area = page_area(box, local, document_uuid:, page:)
+        fields.find { |field| field['type'] == 'signature' }['preferences']['dielca_stamp_logo'] = area
+        areas << area
+      end
+      return unless areas.combination(2).any? { |first, second| overlap?(first, second) }
+
+      raise PdfSubmission::Error, 'LAYOUT_FIELDS_OVERLAP'
+    end
+
+    def preferences(size, type, timestamp, settings)
+      valign = settings.fetch('valign', 'center')
+      raise PdfSubmission::Error, 'LAYOUT_INVALID' unless %w[top center bottom].include?(valign)
+
+      { 'font_size' => size, 'font' => 'Helvetica', 'align' => 'left', 'valign' => valign,
+        'dielca_single_line' => type == 'text' && !timestamp, 'dielca_signing_timestamp' => timestamp }
     end
 
     def overlap?(first, second)
