@@ -8,6 +8,9 @@ report_id = ENV.fetch('PREVIEW_REPORT_ID', '50000')
 size = { 'A5' => [595.28, 419.53], 'A4' => [595.28, 841.89] }.fetch(ENV.fetch('PREVIEW_PAPER_SIZE', 'A5'))
 profile = Dielca::ReportLayout.load(report_id:, document_type: '')
 profile = Dielca::ReportLayout.for_page(profile, size)
+if ENV['PREVIEW_PROFILE_ID'].present?
+  profile = Dielca::ReportLayout.resolve_selector({ 'profile_id' => ENV.fetch('PREVIEW_PROFILE_ID') })
+end
 fields = Dielca::ReportLayout.fields(profile, document_uuid: 'demo', page: 0, role_uuid: 'demo', signer_mode: 'free')
 pdf = HexaPDF::Document.new
 page = pdf.pages.add([0, 0, *size])
@@ -21,11 +24,43 @@ canvas.font('Helvetica', size: 8)
 canvas.text('ARTICULO         DENOMINACION                                      UNIDADES', at: [30, height - 148])
 canvas.text('DEMO             Producto ficticio                                     1', at: [30, height - 168])
 # Reproduce anonymous footer labels; these belong to the sample, not the importer.
-if report_id == '50002'
+if profile['id'] == '50000_A5_customer'
+  canvas.rectangle(0.047 * width, 0.208 * height, 0.255 * width, 0.107 * height).stroke
+  canvas.rectangle(0.047 * width, 0.106 * height, 0.255 * width, 0.102 * height).stroke
+  canvas.font('Helvetica', size: 6)
+  canvas.text('BASE IMPONIBLE    TIPO    CUOTA', at: [0.055 * width, 0.294 * height])
+  canvas.text('100,00              7 %       7,00', at: [0.06 * width, 0.26 * height])
+  canvas.text('FIRMA DEL CLIENTE - RECIBI CONFORME', at: [0.052 * width, 0.195 * height])
+  canvas.text('Nombre:', at: [0.055 * width, 0.16 * height])
+  canvas.text('DNI:', at: [0.055 * width, 0.135 * height])
+  canvas.text('Fecha:', at: [0.055 * width, 0.11 * height])
+elsif profile['id'] == '50000_A4_stacked'
+  canvas.rectangle(28, 74.89, 363, 53).stroke
+  canvas.font('Helvetica', size: 7)
+  canvas.text('RECIBI CONFORME', at: [33.17, 116])
+  canvas.text('Nombre / cargo:', at: [33.17, 104])
+  canvas.text('DNI:', at: [33.17, 92])
+  canvas.text('Fecha:', at: [33.17, 80])
+elsif profile['id'] == '50002_A4_stacked'
+  canvas.rectangle(210.5, 74.89, 179.9, 94.8).stroke
+  canvas.font('Helvetica', size: 7)
+  canvas.text('CONFORME CLIENTE (FIRMA Y SELLO)', at: [216, 160])
+  canvas.text('Nombre:', at: [216, 110])
+  canvas.text('DNI:', at: [216, 96])
+  canvas.text('Fecha:', at: [216, 82])
+elsif report_id == '50002'
   canvas.rectangle(210.5, 77.5, 179.9, 94.8).stroke
   canvas.font('Helvetica', size: 7)
   canvas.text('CONFORME CLIENTE (FIRMA Y SELLO)', at: [216, 164])
   canvas.text('Nombre: ____________  DNI: __________  Fecha:', at: [216, 82])
+elsif report_id == '50001' && ENV['PREVIEW_PAPER_SIZE'] == 'A4'
+  canvas.rectangle(30, 104.89, 185, 100).stroke
+  canvas.rectangle(216, 104.89, 180, 100).stroke
+  canvas.font('Helvetica', size: 7)
+  canvas.text('Forma de pago: CONTADO (FICTICIO)', at: [34, 192])
+  canvas.text('Banco: BANCO FICTICIO', at: [34, 180])
+  canvas.text('VTO: 01/11/2026', at: [34, 166])
+  canvas.text('BASE IMPONIBLE / TIPO / CUOTA', at: [220, 192])
 elsif report_id == '50000' && ENV['PREVIEW_PAPER_SIZE'] == 'A4'
   canvas.rectangle(28, 74.89, 363, 17).stroke
   canvas.font('Helvetica', size: 6)
@@ -46,6 +81,9 @@ else
 end
 demo_values = { 'Nombre' => 'Persona Demo', 'DNI/NIF' => '12345678Z',
                 'Fecha y hora de firma' => "01/11/2026\n14:05:06" }
+if profile.dig('signed_at', 'format') == 'single_line'
+  demo_values['Fecha y hora de firma'] = '01/11/2026 14:05:06'
+end
 fields.each do |field|
   area = field['areas'].first
   x = area['x'] * width

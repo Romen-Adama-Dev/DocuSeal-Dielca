@@ -11,8 +11,15 @@ RSpec.describe Dielca::ReportLayout do
 
   it 'uses the report before the document type and falls back to a configured type' do
     expect(described_class.load(report_id: '50000', document_type: 'SalesOrder')).to eq(shipment)
-    expect(described_class.load(report_id: '99999', document_type: 'PostedShipment')).to eq(shipment)
+    expect(described_class.load(report_id: '', document_type: 'PostedShipment')).to eq(shipment)
     expect(described_class.load(report_id: '', document_type: '')).to be_nil
+  end
+
+  %w[PostedShipment PostedInvoice SalesOrder].each do |type|
+    it "rejects an unknown explicit report instead of using the #{type} fallback" do
+      expect { described_class.load(report_id: '59999', document_type: type) }
+        .to raise_error(Dielca::PdfSubmission::Error) { |error| expect(error.code).to eq('REPORT_LAYOUT_NOT_CONFIGURED') }
+    end
   end
 
   %w[59999].each do |report|
@@ -24,16 +31,26 @@ RSpec.describe Dielca::ReportLayout do
 
   it 'uses shipment placement for A5 invoices and the edited invoice placement for A4' do
     invoice = described_class.load(report_id: '50001', document_type: 'PostedInvoice')
-    expect(described_class.for_page(invoice, [595.28, 419.53])).to eq(profile)
-    expect(described_class.for_page(invoice, [420, 595])).to eq(profile)
-    edited = invoice['paper_sizes']['A4']
+    expect(described_class.for_page(invoice, [595.28, 419.53]).except('id', 'variants')).to eq(profile.except('id', 'variants'))
+    expect(described_class.for_page(invoice, [420, 595]).except('id', 'variants')).to eq(profile.except('id', 'variants'))
+    edited = described_class.for_page(invoice, [595.28, 841.89])
     expect(described_class.for_page(invoice, [595.28, 841.89])).to eq(edited)
     expect(described_class.for_page(invoice, [842, 595])).to eq(edited)
     expect(fields(edited, page: 2).first(3).map { |field| field['areas'].first.slice('x', 'y', 'w', 'h') }).to eq([
-      { 'x' => 0.08219512195121952, 'y' => 0.8133804714530541, 'w' => 0.28853658536585364, 'h' => 0.019033321650394175 },
-      { 'x' => 0.08219512195121952, 'y' => 0.8395723077918018, 'w' => 0.28853658536585364, 'h' => 0.019033321650394175 },
-      { 'x' => 0.395609756097561, 'y' => 0.834, 'w' => 0.28439024390243905, 'h' => 0.03565 }
+      { 'x' => 0.08219512195121952, 'y' => 0.8133804714530541, 'w' => 0.14, 'h' => 0.017 },
+      { 'x' => 0.08219512195121952, 'y' => 0.836, 'w' => 0.14, 'h' => 0.017 },
+      { 'x' => 0.239, 'y' => 0.835, 'w' => 0.115, 'h' => 0.038 }
     ])
+    invoice_fields = fields(edited)
+    areas = invoice_fields.flat_map { |field| field['areas'] }
+    areas << invoice_fields.find { |field| field['type'] == 'signature' }.dig('preferences', 'dielca_stamp_logo')
+    areas.each do |area|
+      expect(area['x']).to be >= 0.075
+      expect(area['x'] + area['w']).to be <= 0.36
+      expect(area['y']).to be >= 0.808
+      expect(area['y'] + area['h']).to be <= 0.875
+    end
+    expect(areas.combination(2).any? { |first, second| described_class.overlap?(first, second) }).to be(false)
     expect(described_class.for_page(profile, [595.28, 419.53])).to eq(profile)
   end
 
@@ -51,9 +68,66 @@ RSpec.describe Dielca::ReportLayout do
     expect((area['y'] + area['h']) * 841.89).to be <= 767
     expect(result.flat_map { |field| field['areas'] }.pluck('page')).to all(eq(2))
     areas = result.flat_map { |field| field['areas'] }
+    areas.each do |field_area|
+      expect(field_area['x'] * 595.276).to be >= 28
+      expect((field_area['x'] + field_area['w']) * 595.276).to be <= 391
+      expect(field_area['y'] * 841.89).to be >= 750
+      expect((field_area['y'] + field_area['h']) * 841.89).to be <= 767
+    end
     expect(areas.combination(2).any? { |first, second| described_class.overlap?(first, second) }).to be(false)
     expect(result.map { |field| field['areas'].first.values_at('y', 'h') }.uniq).to eq([[0.8915, 0.0175]])
     expect(config).not_to have_key('logo') # No room for a second logo in this narrow printed row.
+  end
+
+  it 'keeps independent named profiles and resolves report/type selectors to the same geometry' do
+    config = described_class.configuration
+    expect(config.fetch('profiles').keys).to match_array(%w[50000_A4 50000_A5 50001_A4 50001_A5 50002_A4 50000_A4_stacked 50002_A4_stacked 50000_A5_customer])
+    { '50000' => 'PostedShipment', '50001' => 'PostedInvoice', '50002' => 'SalesOrder' }.each do |report, type|
+      config['reports'][report]['paper_sizes'].each_key do |paper|
+        size = described_class::PAPER_SIZES.fetch(paper)
+        selected = described_class.for_page(described_class.load(report_id: report, document_type: type), size)
+        fallback = described_class.for_page(described_class.load(report_id: '', document_type: type), size)
+        expect(selected['id']).to eq("#{report}_#{paper}")
+        expect(fallback).to eq(selected)
+      end
+    end
+  end
+
+  it 'requires every footer anchor and rejects ambiguous variant matches' do
+    base = described_class.configuration.fetch('profiles').fetch('50000_A5')
+    objects = base['variants'].first['anchors'].map do |anchor|
+      Pdfium::TextObject.new(anchor['text'], anchor['x'] + 0.001, anchor['y'] + 0.001, 0.02, 0.01, 6)
+    end
+    expect(described_class.select_variant(base, objects.first(1))).to eq(base)
+    expect(described_class.select_variant(base, objects)['id']).to eq('50000_A5_customer')
+    ambiguous = base.merge('variants' => base['variants'] * 2)
+    expect { described_class.select_variant(ambiguous, objects) }
+      .to raise_error(Dielca::PdfSubmission::Error) { |error| expect(error.code).to eq('REPORT_LAYOUT_NOT_CONFIGURED') }
+  end
+
+  it 'contains the edited A5 fields below taxes with aligned identity columns' do
+    edited = described_class.configuration.fetch('profiles').fetch('50000_A5_customer')
+    result = fields(edited, page: 1)
+    result.flat_map { |field| field['areas'] }.each do |area|
+      expect(area['page']).to eq(1)
+      expect(area['y']).to be >= 0.82
+      expect(area['y'] + area['h']).to be <= 0.893
+      expect(area['x']).to be >= 0.05
+      expect(area['x'] + area['w']).to be <= 0.30
+    end
+    text = result.select { |field| field['type'] == 'text' }
+    expect(text.map { |field| field['areas'].first.values_at('x', 'w', 'h') }.uniq).to eq([[0.103, 0.096, 0.0219]])
+  end
+
+  it 'refuses an unmeasured A5 order instead of reusing the A4 order coordinates' do
+    order = described_class.load(report_id: '50002', document_type: 'SalesOrder')
+    expect { described_class.for_page(order, [595.28, 419.53]) }
+      .to raise_error(Dielca::PdfSubmission::Error) { |error| expect(error.code).to eq('REPORT_LAYOUT_NOT_CONFIGURED') }
+  end
+
+  it 'rejects an unknown named profile reference' do
+    expect { described_class.for_page({ 'paper_sizes' => { 'A4' => { 'profile_id' => 'missing' } } }, [595.28, 841.89]) }
+      .to raise_error(Dielca::PdfSubmission::Error) { |error| expect(error.code).to eq('LAYOUT_CONFIGURATION_INVALID') }
   end
 
   it 'refuses unsupported invoice paper sizes and invalid geometry' do
@@ -75,7 +149,8 @@ RSpec.describe Dielca::ReportLayout do
 
   it 'uses the latest approved order rectangles and a server-owned timestamp on the last page' do
     config = described_class.load(report_id: '50002', document_type: 'SalesOrder')
-    expect(described_class.load(report_id: '99999', document_type: 'SalesOrder')).to eq(config)
+    expect(described_class.load(report_id: '', document_type: 'SalesOrder')).to eq(config)
+    config = described_class.for_page(config, [595.28, 841.89])
     result = fields(config, page: 2)
     expected = [
       { 'x' => 0.41, 'y' => 0.874, 'w' => 0.0778048780487805, 'h' => 0.02 },
@@ -114,7 +189,7 @@ RSpec.describe Dielca::ReportLayout do
     { '50000' => 'PostedShipment', '50001' => 'PostedInvoice', '50002' => 'SalesOrder' }.each do |report, type|
       report_profile = described_class.load(report_id: report, document_type: type)
       expect(described_class.load(report_id: '', document_type: type)).to eq(report_profile)
-      sizes = report_profile.key?('paper_sizes') ? [[595.28, 419.53], [595.28, 841.89]] : [[595.28, 841.89]]
+      sizes = report_profile.fetch('paper_sizes').keys.map { |paper| described_class::PAPER_SIZES.fetch(paper) }
       sizes.each do |size|
         result = fields(described_class.for_page(report_profile, size), page: 2)
         timestamp = result.find { |field| field.dig('preferences', 'dielca_signing_timestamp') }

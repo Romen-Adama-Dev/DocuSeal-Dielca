@@ -43,7 +43,12 @@ module Api
         end
 
         rescue_from ::Dielca::PdfSubmission::Error do |error|
-          render json: { error: { code: error.code } }, status: error.status
+          details = { code: error.code }
+          if error.code == 'REPORT_LAYOUT_NOT_CONFIGURED'
+            details[:message] = ::Dielca::ReportLayout::NOT_CONFIGURED_MESSAGE
+            details[:portal_url] = dielca_import_error_url(**Docuseal.default_url_options)
+          end
+          render json: { error: details }, status: error.status
         end
 
         rescue_from CanCan::AccessDenied do

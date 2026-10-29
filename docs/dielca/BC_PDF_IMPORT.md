@@ -374,3 +374,30 @@ iniciales configurables: revisar cada muestra con el diseño de informe correspo
 Los cinco perfiles cubiertos son albarán A4/A5, factura A4/A5 y pedido A4; no se
 extrapola un pedido A5 sin disponer de su diseño. Todos usan la última página y
 la fecha de finalización persistida por el servidor en Atlantic/Canary.
+
+
+### Factura 50001 y errores de perfil explícitos
+
+El ajuste actual de factura A4 reúne también la firma y el logo con Nombre y
+DNI en el recuadro inferior izquierdo; sustituye las coordenadas de la revisión
+anterior que dejaban el dibujo en el recuadro contiguo. Detalle actualizado en
+FACTURA_50001_PROPUESTA.md. A5 conserva su configuración previa.
+
+Cuando BC facilita reportId, se exige ese perfil exacto: documentType ya no
+sustituye un reportId desconocido. El fallback por tipo sigue disponible si no
+hay reportId. Un perfil o formato ausente produce HTTP 422, el código existente
+REPORT_LAYOUT_NOT_CONFIGURED, una explicación en error.message y la página de
+ayuda error.portal_url (/dielca/import-error). El conector debe presentar esos
+datos al usuario; aquí no se modifica el código de BC ni del conector. No se
+crea un envío sin firma al rechazar una importación.
+
+
+### Catálogo independiente por informe y papel (28/10/2026)
+
+Las coordenadas se guardan ahora en cinco entradas de profiles, referenciadas
+por profile_id desde reports/document_types. Detalle e inventario en
+[PERFILES_FIRMA.md](PERFILES_FIRMA.md). El pedido también usa selector A4: un
+pedido A5 queda pendiente de referencia y se rechaza claramente. El perfil
+aplicado se conserva como report_layout_id en los metadatos de la importación.
+Se revisó el último albarán A4 y se contuvo su firma dentro de la franja sin
+alterar el perfil A5 ni los documentos ya firmados.

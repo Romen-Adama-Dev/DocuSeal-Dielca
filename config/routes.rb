@@ -29,6 +29,8 @@ Rails.application.routes.draw do
     end
   end
 
+  get 'dielca/import-error', to: 'dielca/import_errors#show', as: :dielca_import_error
+
   namespace :api, defaults: { format: :json } do
     namespace :dielca do
       namespace :v1 do

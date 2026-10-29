@@ -1,49 +1,60 @@
-# Facturas 50001: perfil por tamaño del PDF
+# Factura registrada 50001: bloque inferior izquierdo
 
-Perfil de facturas 50001: implementación y referencia de colocación.
+El perfil del informe 50001 ya existía antes de esta revisión. Se ha ajustado
+su variante A4 para reunir Nombre, DNI/NIF, Firma, logo y fecha/hora dentro del
+recuadro inferior izquierdo, bajo los datos de pago. El perfil anterior dejaba
+la firma en el recuadro central. Solo se han utilizado medidas de una referencia
+local para revisar el diseño: no se copia ningún PDF, identidad, dato bancario
+ni valor de firma al repositorio ni a las pruebas.
 
-El usuario indicó inicialmente usar el albarán para A5 y el pedido para A4;
-después ajustó los tres campos en DocuSeal y pidió usar esa factura como referencia. `config/dielca_bc_layouts.json` define para `reports["50001"]`
-un selector `paper_sizes`: A5 referencia el informe 50000 y A4 contiene un perfil propio, tomado de la
-factura editada por el usuario en DocuSeal. El pedido 50002 conserva sus posiciones. DNI/NIF usa la misma coordenada x,
-anchura, altura y fuente que Nombre; conserva su fila debajo.
-No se añade un fallback global para otros informes de `PostedInvoice`.
+`config/dielca_bc_layouts.json` mantiene el selector A4/A5 del informe 50001:
 
-`ReportLayout.for_page` identifica A5 o A4 a partir de las dimensiones en puntos
-de la última página, admitiendo redondeos de hasta 3 puntos y ambas orientaciones.
-El importador resuelve ese selector después de verificar la geometría del PDF y
-antes de crear plantillas, documentos o envíos. Otros tamaños conservan el rechazo
-`REPORT_LAYOUT_NOT_CONFIGURED`. Las referencias recursivas o mal configuradas
-se rechazan, sin estimar posiciones nuevas.
+- A4: textos alineados a la izquierda; logo y firma alineados en la columna
+  derecha del mismo bloque. Las áreas quedan entre x=0.082195 y x=0.354 y entre
+  y=0.809 e y=0.873, en fracciones de página. El recuadro central queda libre.
+- A5: conserva la configuración compartida con el albarán A5, aprobada en la
+  fase anterior. Esta revisión no dispone de una factura A5 independiente;
+  su colocación debe revisarse con ese informe si se utiliza.
 
-Se reutilizan las coordenadas actuales del perfil seleccionado. Los campos
-Nombre, DNI/NIF y Firma se colocan en la última página; conservan los modos
-libre/autorizado, validación de identidad, confirmación de copia y hash original.
-La repetición del mismo requestId no duplica el envío.
+Los campos se insertan solo en la última página del documento original. Se
+mantienen la identidad válida, selección de autorizado, confirmación de copia,
+hash original e idempotencia. La fecha/hora procede de completed_at y se guarda
+en horario Atlantic/Canary. Los envíos ya importados o firmados no se recolocan.
 
-La vista ficticia admite ambos formatos:
+## Informes sin perfil
+
+Un reportId explícito debe existir en reports. Si no existe, no se usa el
+fallback de documentType. El fallback solo se permite cuando no hay reportId.
+Un tamaño de página no configurado también se rechaza. En ambos casos, la API
+responde HTTP 422 con error.code=REPORT_LAYOUT_NOT_CONFIGURED, error.message en
+español y error.portal_url. No crea plantillas, archivos ni envíos incompletos.
+
+La página /dielca/import-error muestra la explicación en el portal, con el logo
+DIELCA y la atribución original. Es estática, no acepta identificadores de
+clientes, enlaces de firma ni textos de error arbitrarios y no se almacena en
+caché. El conector debe mostrar error.message y ofrecer error.portal_url al
+usuario; esta revisión no modifica el conector ni la extensión de BC. El código
+de error existente se conserva para no romper su tratamiento de reintentos.
+
+## Validación y muestras
+
+Las pruebas generan PDF ficticios de una y tres páginas, A4/A5, incluidos
+PDF mixtos. Comprueban los modos libre y autorizado, todas las áreas dentro del
+bloque, ausencia de solapamientos, campos en última página e idempotencia.
+Verifican además que un informe desconocido no produzca efectos parciales y
+que el portal muestre un error sin revelar datos del documento.
 
 ```sh
-PREVIEW_REPORT_ID=50001 PREVIEW_PAPER_SIZE=A5 PREVIEW_OUTPUT=/tmp/factura-a5.pdf bundle exec rails runner scripts/dielca_layout_preview.rb
 PREVIEW_REPORT_ID=50001 PREVIEW_PAPER_SIZE=A4 PREVIEW_OUTPUT=/tmp/factura-a4.pdf bundle exec rails runner scripts/dielca_layout_preview.rb
+PREVIEW_REPORT_ID=50001 PREVIEW_PAPER_SIZE=A5 PREVIEW_OUTPUT=/tmp/factura-a5.pdf bundle exec rails runner scripts/dielca_layout_preview.rb
 ```
 
-Ejecutar exclusivamente en desarrollo/pruebas con datos ficticios. La vista muestra
-las posiciones heredadas sobre un documento sintético; no prueba la ausencia de
-solapamiento con todos los textos de una factura real.
+Ejecutar exclusivamente en desarrollo/pruebas. Las muestras contienen datos
+ficticios y sirven para la revisión visual, sin garantizar otros diseños de BC.
+No hay migraciones, secretos ni nuevas dependencias. Se conserva la licencia
+AGPLv3 y la atribución a DocuSeal. Sin push, PR a upstream ni despliegue automático;
+el repositorio DIELCA es público y no debe contener datos operativos.
 
-Pruebas añadidas: selección A5/A4 en ambas orientaciones, geometría inválida,
-tamaño no admitido, configuración recursiva, importación libre y autorizada de
-una o tres páginas (con páginas previas de otro tamaño), coordenadas correctas,
-ubicación en última página e idempotencia.
-
-Se copiaron únicamente coordenadas y tamaños de fuente de los campos editados
-por el usuario, sin datos de cliente ni valores de firma. No se han incluido PDF ni datos personales
-en Git. Esta revisión sustituye la referencia inicial al pedido A4 por un perfil propio
-de factura. Cada envío creado conserva sus áreas; modificar el perfil no recoloca
-los envíos existentes ni sus documentos firmados. La versión activa se registra
-en el informe de despliegue del servidor.
-
-Verificación completada: 106 ejemplos RSpec de servicios DIELCA e importación
-sin fallos, en PostgreSQL/storage aislados. Generadas y revisadas las vistas
-ficticias A5 y A4. Comprobación git diff --check correcta.
+Verificación de esta revisión: 124 ejemplos RSpec de servicios DIELCA e
+importación, sin fallos, ejecutados con SQLite y almacenamiento aislados.
+Muestra A4 ficticia renderizada y revisada; git diff --check correcto.

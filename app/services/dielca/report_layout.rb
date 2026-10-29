@@ -4,9 +4,12 @@ module Dielca
   module ReportLayout
     module_function
 
+    NOT_CONFIGURED_MESSAGE = 'No hay un perfil de firma configurado para este informe de Business Central ' \
+                             'o para el tamaño de página del PDF. Solicita configurar el perfil y vuelve a intentarlo.'
+
     PAPER_SIZES = { 'A5' => [419.53, 595.28], 'A4' => [595.28, 841.89] }.freeze
 
-    def for_page(profile, page_size)
+    def for_page(profile, page_size, text_objects: nil)
       return profile unless profile.key?('paper_sizes')
 
       unless page_size.is_a?(Array) && page_size.size == 2 &&
@@ -21,26 +24,70 @@ module Dielca
       selector = profile.fetch('paper_sizes')[format]
       raise PdfSubmission::Error, 'REPORT_LAYOUT_NOT_CONFIGURED' unless selector
 
-      selected = selector.key?('report_id') ? load(report_id: selector['report_id'], document_type: '') : selector
+      select_variant(resolve_selector(selector), text_objects)
+    rescue KeyError, NoMethodError, TypeError
+      raise PdfSubmission::Error, 'LAYOUT_CONFIGURATION_INVALID'
+    end
+
+    def resolve_selector(selector)
+      selected = if selector.key?('profile_id')
+                   configuration.fetch('profiles', {})[selector['profile_id']]
+                 elsif selector.key?('report_id')
+                   load(report_id: selector['report_id'], document_type: '')
+                 else
+                   selector
+                 end
       unless selected.is_a?(Hash) && selected['box'].is_a?(Hash) && selected['fields'].is_a?(Hash) &&
              !selected.key?('paper_sizes')
         raise PdfSubmission::Error, 'LAYOUT_CONFIGURATION_INVALID'
       end
 
       selected
-    rescue KeyError, NoMethodError, TypeError
-      raise PdfSubmission::Error, 'LAYOUT_CONFIGURATION_INVALID'
+    end
+
+    def select_variant(profile, text_objects)
+      return profile if profile['variants'].blank? || text_objects.nil?
+
+      matches = profile['variants'].select do |variant|
+        anchors = variant.fetch('anchors')
+        raise PdfSubmission::Error, 'LAYOUT_CONFIGURATION_INVALID' if anchors.empty?
+
+        anchors.all? { |anchor| text_objects.any? { |object| anchor_matches?(anchor, object) } }
+      end
+      raise PdfSubmission::Error, 'REPORT_LAYOUT_NOT_CONFIGURED' if matches.size > 1
+
+      matches.empty? ? profile : resolve_selector(matches.sole)
+    end
+
+    def anchor_matches?(anchor, object)
+      PdfLayout.validate_coordinates!(anchor.slice('x', 'y', 'w', 'h'))
+      text = anchor.fetch('text')
+      raise PdfSubmission::Error, 'LAYOUT_CONFIGURATION_INVALID' if text.blank?
+
+      object.content.unicode_normalize(:nfkc).downcase.include?(text.unicode_normalize(:nfkc).downcase) &&
+        object.x.between?(anchor['x'], anchor['x'] + anchor['w']) &&
+        object.y.between?(anchor['y'], anchor['y'] + anchor['h'])
     end
 
     def load(report_id:, document_type:)
       return if report_id.blank? && document_type.blank?
 
-      path = ENV['DIELCA_BC_LAYOUTS_FILE'].presence || Rails.root.join('config/dielca_bc_layouts.json')
-      config = JSON.parse(File.read(path))
-      profile = config.fetch('reports', {})[report_id.to_s] || config.fetch('document_types', {})[document_type]
+      config = configuration
+      profile = if report_id.present?
+                  config.fetch('reports', {})[report_id.to_s]
+                else
+                  config.fetch('document_types', {})[document_type]
+                end
       raise PdfSubmission::Error, 'REPORT_LAYOUT_NOT_CONFIGURED' unless profile
 
       profile
+    rescue JSON::ParserError, Errno::ENOENT, TypeError
+      raise PdfSubmission::Error, 'LAYOUT_CONFIGURATION_INVALID'
+    end
+
+    def configuration
+      path = ENV['DIELCA_BC_LAYOUTS_FILE'].presence || Rails.root.join('config/dielca_bc_layouts.json')
+      JSON.parse(File.read(path))
     rescue JSON::ParserError, Errno::ENOENT, TypeError
       raise PdfSubmission::Error, 'LAYOUT_CONFIGURATION_INVALID'
     end
@@ -95,7 +142,8 @@ module Dielca
       raise PdfSubmission::Error, 'LAYOUT_INVALID' unless %w[top center bottom].include?(valign)
 
       { 'font_size' => size, 'font' => 'Helvetica', 'align' => 'left', 'valign' => valign,
-        'dielca_single_line' => type == 'text' && !timestamp, 'dielca_signing_timestamp' => timestamp }
+        'dielca_single_line' => type == 'text' && !timestamp, 'dielca_signing_timestamp' => timestamp,
+        'dielca_timestamp_single_line' => timestamp && settings['format'] == 'single_line' }
     end
 
     def overlap?(first, second)

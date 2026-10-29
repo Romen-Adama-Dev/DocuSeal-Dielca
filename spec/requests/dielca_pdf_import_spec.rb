@@ -465,11 +465,21 @@ RSpec.describe 'DIELCA original BC PDF API' do
     expect(response).to have_http_status(:forbidden)
   end
 
-  [1, 3].each do |pages|
-    context "with #{pages} fictitious A5 landscape pages" do
+  [1, 3].product([false, true]).each do |pages, edited|
+    context "with #{pages} fictitious A5 landscape pages #{edited ? "edited" : "legacy"}" do
       let(:bytes) do
         document = HexaPDF::Document.new
-        pages.times { document.pages.add([0, 0, 595.28, 419.53]) }
+        pages.times do
+          page = document.pages.add([0, 0, 595.28, 419.53])
+          if edited
+            canvas = page.canvas.font('Helvetica', size: 6)
+            canvas.rectangle(28, 44.5, 151, 43).stroke
+            canvas.text('FIRMA DEL CLIENTE - RECIBI CONFORME', at: [30, 80])
+            canvas.text('Nombre:', at: [32, 69])
+            canvas.text('DNI:', at: [32, 58])
+            canvas.text('Fecha:', at: [32, 48])
+          end
+        end
         StringIO.new.tap { |io| document.write(io) }.string
       end
 
@@ -478,6 +488,8 @@ RSpec.describe 'DIELCA original BC PDF API' do
                document_number: 'ALB-DEMO')
         expect(response).to have_http_status(:created)
         record = Dielca::PdfImport.find_by!(account:, request_id:)
+        expected_profile = edited ? '50000_A5_customer' : '50000_A5'
+        expect(record.submitter.metadata['report_layout_id']).to eq(expected_profile)
         confirm_signing(record, signer_name: 'Persona ficticia de nombre largo para comprobar la caja')
         expect(response).to have_http_status(:ok)
         signature = record.submission.template.fields.find { |field| field['type'] == 'signature' }
@@ -494,12 +506,16 @@ RSpec.describe 'DIELCA original BC PDF API' do
         timestamp = record.submission.template.fields.find do |field|
           field.dig('preferences', 'dielca_signing_timestamp')
         end
+        time_format = edited ? '%d/%m/%Y %H:%M:%S' : "%d/%m/%Y\n%H:%M:%S"
         expect(record.submitter.reload.values[timestamp['uuid']])
-          .to eq(record.submitter.completed_at.in_time_zone('Atlantic/Canary').strftime("%d/%m/%Y\n%H:%M:%S"))
+          .to eq(record.submitter.completed_at.in_time_zone('Atlantic/Canary').strftime(time_format))
         generated = Submissions::GenerateResultAttachments.generate_pdfs(record.submitter.reload).values.first
         expect(generated.pages.count).to eq(pages)
-        expect(generated.pages[pages - 1][:Resources][:XObject].each.count).to eq(2)
+        expect(generated.pages[pages - 1][:Resources][:XObject].each.count).to eq(edited ? 1 : 2)
         generated.pages.to_a[0...-1].each { |page| expect(page[:Resources][:XObject]).to be_blank }
+        if edited && pages == 1 && ENV['DIELCA_TEST_PREVIEW'] == 'true'
+          generated.write('/tmp/dielca-A5-edited-demo.pdf')
+        end
         fields = record.submission.reload.template_fields
         expect(fields.flat_map { |field| field['areas'] }.pluck('page')).to all(eq(pages - 1))
         pdf = HexaPDF::Document.new
@@ -513,8 +529,10 @@ RSpec.describe 'DIELCA original BC PDF API' do
     end
   end
 
-  %w[50000 50001 50002].product([1, 3]).each do |report, pages|
-    context "with a #{pages}-page A4 report #{report} using the latest placement" do
+  [
+    ['50000', false], ['50001', false], ['50002', false], ['50000', true], ['50002', true]
+  ].product([1, 3]).each do |(report, stacked), pages|
+    context "with a #{pages}-page A4 report #{report} #{stacked ? "stacked" : "inline"} using the latest placement" do
       let(:bytes) do
         pdf = HexaPDF::Document.new
         pages.times do
@@ -522,7 +540,22 @@ RSpec.describe 'DIELCA original BC PDF API' do
           canvas = page.canvas.font('Helvetica', size: 12)
           canvas.text('DOCUMENTO FICTICIO - REVISION DE FIRMA', at: [40, 800])
           canvas.font('Helvetica', size: 7).text('Fecha documento: 01/01/2026', at: [40, 730])
-          if report == '50000'
+          if stacked
+            canvas.font('Helvetica', size: 7)
+            if report == '50000'
+              canvas.rectangle(28, 74.89, 363, 53).stroke
+              canvas.text('RECIBÍ CONFORME', at: [33.17, 116])
+              canvas.text('Nombre / cargo:', at: [33.17, 104])
+              canvas.text('DNI:', at: [33.17, 92])
+              canvas.text('Fecha:', at: [33.17, 80])
+            else
+              canvas.rectangle(210.5, 74.89, 179.9, 94.8).stroke
+              canvas.text('CONFORME CLIENTE (FIRMA Y SELLO)', at: [216, 160])
+              canvas.text('Nombre:', at: [216, 110])
+              canvas.text('DNI:', at: [216, 96])
+              canvas.text('Fecha:', at: [216, 82])
+            end
+          elsif report == '50000'
             canvas.rectangle(28, 74.89, 363, 17).stroke
             canvas.font('Helvetica', size: 6)
             canvas.text('RECIBI CONFORME', at: [32, 81])
@@ -552,6 +585,7 @@ RSpec.describe 'DIELCA original BC PDF API' do
         import(signer_mode: 'free', authorized_signers: '[]', reportId: report, documentType: document_type)
         expect(response).to have_http_status(:created)
         record = Dielca::PdfImport.find_by!(account:, request_id:)
+        expect(record.submitter.metadata['report_layout_id']).to eq("#{report}_A4#{stacked ? '_stacked' : ''}")
         confirm_signing(record, signer_name: 'Persona Demo')
         expect(response).to have_http_status(:ok)
         fields = record.submission.template.fields
@@ -575,7 +609,8 @@ RSpec.describe 'DIELCA original BC PDF API' do
           }
           expect(response).to have_http_status(:ok)
         end
-        expect(record.submitter.reload.values[timestamp['uuid']]).to eq("01/11/2026\n14:05:06")
+        expected_time = stacked ? "01/11/2026 14:05:06" : "01/11/2026\n14:05:06"
+        expect(record.submitter.reload.values[timestamp['uuid']]).to eq(expected_time)
         expect(record.submission.reload.template_fields.flat_map { |field| field['areas'] }.pluck('page'))
           .to all(eq(pages - 1))
         result = Submissions::GenerateResultAttachments.generate_pdfs(record.submitter).values.first
@@ -592,7 +627,9 @@ RSpec.describe 'DIELCA original BC PDF API' do
 
         result.pages.to_a[0...-1].each { |page| expect(page[:Resources][:XObject]).to be_blank }
         # Optional review artifact contains only the fictitious document generated above.
-        result.write("/tmp/dielca-#{report}-timestamp-demo.pdf") if ENV['DIELCA_TEST_PREVIEW'] == 'true' && pages == 1
+        if ENV['DIELCA_TEST_PREVIEW'] == 'true' && pages == 1
+          result.write("/tmp/dielca-#{report}-#{stacked ? 'stacked' : 'inline'}-timestamp-demo.pdf")
+        end
       end
     end
   end
@@ -617,12 +654,13 @@ RSpec.describe 'DIELCA original BC PDF API' do
             expect(response).to have_http_status(:created)
             record = Dielca::PdfImport.find_by!(account:, request_id:)
             expect(record.signer_mode).to eq(mode)
-            expect(record.submitter.metadata).to include('report_id' => '50001', 'document_type' => 'PostedInvoice')
+            expect(record.submitter.metadata).to include('report_id' => '50001', 'document_type' => 'PostedInvoice',
+                                                         'report_layout_id' => "50001_#{paper}")
             fields = record.submission.template.fields
             expect(fields.flat_map { |field| field['areas'] }.pluck('page')).to all(eq(pages - 1))
             signature = fields.find { |field| field['name'] == 'Firma' }['areas'].sole
-            expect(signature['x']).to be_within(0.000001).of(paper == 'A5' ? 0.195 : 0.395609756097561)
-            expect(signature['y']).to be_within(0.000001).of(paper == 'A5' ? 0.810 : 0.834)
+            expect(signature['x']).to be_within(0.000001).of(paper == 'A5' ? 0.195 : 0.239)
+            expect(signature['y']).to be_within(0.000001).of(paper == 'A5' ? 0.810 : 0.835)
             identity = fields.select { |field| field.dig('preferences', 'dielca_single_line') }
             expect(identity.pluck('readonly')).to all(eq(mode == 'authorized'))
             expect { import(**params) }.not_to change(Submission, :count)
@@ -632,6 +670,32 @@ RSpec.describe 'DIELCA original BC PDF API' do
         end
       end
     end
+  end
+
+  it 'rejects unknown reports with a clear portal error and creates no unfinished submission' do
+    layout # Materialize the configured layout before checking import side effects.
+    expect do
+      import(reportId: '59999', documentType: 'PostedInvoice')
+    end.not_to(change { [Submission.count, Template.count, Dielca::PdfImport.count, ActiveStorage::Blob.count] })
+    expect(response).to have_http_status(:unprocessable_content)
+    error = response.parsed_body.fetch('error')
+    expect(error).to include('code' => 'REPORT_LAYOUT_NOT_CONFIGURED',
+                            'message' => Dielca::ReportLayout::NOT_CONFIGURED_MESSAGE)
+    expect(error).not_to have_key('sign_url')
+    expect(error.fetch('portal_url')).to end_with('/dielca/import-error')
+    get URI(error.fetch('portal_url')).request_uri
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(response.body).to include('No se puede preparar el documento para firmar',
+                                     Dielca::ReportLayout::NOT_CONFIGURED_MESSAGE,
+                                     'REPORT_LAYOUT_NOT_CONFIGURED', 'DocuSeal')
+    expect(response.body).not_to include(customer_data[:name], signers.first[:name])
+    expect(response.headers['Cache-Control']).to include('no-store')
+  end
+
+  it 'shows a static portal error without reflecting arbitrary query parameters' do
+    get dielca_import_error_path, params: { message: 'REFLECTED-FICTITIOUS-INPUT', reportId: '59999' }
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(response.body).not_to include('REFLECTED-FICTITIOUS-INPUT', '59999')
   end
 
   context 'with an invoice in an unsupported paper size' do
@@ -645,6 +709,8 @@ RSpec.describe 'DIELCA original BC PDF API' do
       expect { import(reportId: '50001', documentType: 'PostedInvoice') }.not_to change(Submission, :count)
       expect(response).to have_http_status(:unprocessable_content)
       expect(response.parsed_body.dig('error', 'code')).to eq('REPORT_LAYOUT_NOT_CONFIGURED')
+      expect(response.parsed_body.dig('error', 'message')).to eq(Dielca::ReportLayout::NOT_CONFIGURED_MESSAGE)
+      expect(response.parsed_body.dig('error', 'portal_url')).to end_with('/dielca/import-error')
       expect(Dielca::PdfImport.find_by(account:, request_id:)).to be_nil
     end
   end

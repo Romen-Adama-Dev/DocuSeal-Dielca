@@ -38,7 +38,9 @@ module Dielca
 
       validate_geometry!(doc)
       if @report_profile
-        @report_profile = ReportLayout.for_page(@report_profile, doc.page_size(doc.page_count - 1))
+        @report_profile = ReportLayout.for_page(@report_profile, doc.page_size(doc.page_count - 1),
+                                                text_objects: doc.get_page(doc.page_count - 1).text_objects)
+        @metadata['report_layout_id'] = @report_profile['id'] if @report_profile['id']
       end
 
       # Insertion and submission creation commit together. The unique index also

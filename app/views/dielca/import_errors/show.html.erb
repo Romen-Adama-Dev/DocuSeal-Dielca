@@ -1,0 +1,9 @@
+<%= render 'shared/html_title', title: 'Informe sin perfil de firma' %>
+<main class="max-w-lg mx-auto px-4 mt-12 mb-8">
+  <div role="alert" class="rounded-xl border border-base-300 bg-base-100 p-6 space-y-4">
+    <h1 class="text-xl font-bold">No se puede preparar el documento para firmar</h1>
+    <p><%= Dielca::ReportLayout::NOT_CONFIGURED_MESSAGE %></p>
+    <p>No se ha creado ningún envío ni se ha solicitado otra firma.</p>
+    <p class="text-sm">Código: REPORT_LAYOUT_NOT_CONFIGURED</p>
+  </div>
+</main>
