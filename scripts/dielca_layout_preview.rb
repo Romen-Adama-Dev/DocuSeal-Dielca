@@ -79,7 +79,7 @@ else
   canvas.text('TEXTO CENTRAL DEL INFORME', at: [0.33 * width, 0.215 * height])
   canvas.text('TOTAL: 107,00', at: [0.72 * width, 0.215 * height])
 end
-demo_values = { 'Nombre' => 'Persona Demo', 'DNI/NIF' => '12345678Z',
+demo_values = { 'Nombre' => ENV.fetch('PREVIEW_SIGNER_NAME', 'Persona Demo'), 'DNI/NIF' => '12345678Z',
                 'Fecha y hora de firma' => "01/11/2026\n14:05:06" }
 if profile.dig('signed_at', 'format') == 'single_line'
   demo_values['Fecha y hora de firma'] = '01/11/2026 14:05:06'

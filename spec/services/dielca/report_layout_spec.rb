@@ -105,6 +105,28 @@ RSpec.describe Dielca::ReportLayout do
       .to raise_error(Dielca::PdfSubmission::Error) { |error| expect(error.code).to eq('REPORT_LAYOUT_NOT_CONFIGURED') }
   end
 
+  it 'aligns the edited A4 shipment rows and keeps its signature inside the receipt box' do
+    edited = described_class.configuration.fetch('profiles').fetch('50000_A4_stacked')
+    result = fields(edited, page: 2)
+    text = result.select { |field| field['type'] == 'text' }
+    columns = text.map { |field| field['areas'].first.values_at('x', 'w', 'h') }
+    expect(columns.uniq.size).to eq(1)
+    expect(text.find { |field| field['name'] == 'Nombre' }.dig('preferences', 'font_size')).to eq(7)
+    expect(text.reject { |field| field['name'] == 'Nombre' }.map { |field| field.dig('preferences', 'font_size') })
+      .to all(eq(5))
+    rows = text.map { |field| field['areas'].first['y'] }.sort
+    expect(rows[1] - rows[0]).to be_within(0.000001).of(rows[2] - rows[1])
+    result.flat_map { |field| field['areas'] }.each do |area|
+      expect(area['page']).to eq(2)
+      expect(area['x'] * 595.276).to be >= 98
+      expect((area['x'] + area['w']) * 595.276).to be <= 391
+      expect(area['y'] * 841.89).to be >= 716
+      expect((area['y'] + area['h']) * 841.89).to be <= 767
+    end
+    signature = result.find { |field| field['type'] == 'signature' }['areas'].first
+    expect(signature['x']).to be > columns.first[0] + columns.first[1]
+  end
+
   it 'contains the edited A5 fields below taxes with aligned identity columns' do
     edited = described_class.configuration.fetch('profiles').fetch('50000_A5_customer')
     result = fields(edited, page: 1)
@@ -116,7 +138,22 @@ RSpec.describe Dielca::ReportLayout do
       expect(area['x'] + area['w']).to be <= 0.30
     end
     text = result.select { |field| field['type'] == 'text' }
-    expect(text.map { |field| field['areas'].first.values_at('x', 'w', 'h') }.uniq).to eq([[0.103, 0.096, 0.0219]])
+    expect(text.map { |field| field['areas'].first['x'] }.uniq).to eq([0.103])
+    name = text.find { |field| field['name'] == 'Nombre' }
+    expect(name.dig('areas', 0, 'w')).to be > 1.9 * text.find { |field| field['name'] == 'DNI/NIF' }.dig('areas', 0, 'w')
+    expect(name.dig('preferences', 'font_size')).to eq(7)
+    signature = result.find { |field| field['type'] == 'signature' }['areas'].first
+    expect(signature['y']).to be > name['areas'].first['y'] + name['areas'].first['h']
+  end
+
+  it 'keeps a representative fictitious full name legible in the wider A5 row' do
+    config = described_class.configuration.fetch('profiles').fetch('50000_A5_customer')
+    name = fields(config).find { |field| field['name'] == 'Nombre' }
+    pdf = HexaPDF::Document.new
+    pdf.pages.add([0, 0, 595.28, 419.53])
+    font = pdf.fonts.add('Helvetica', custom_encoding: true)
+    Dielca::SingleLineIdentity.fit_field!(name, 'PERSONA DEMO APELLIDO SEGUNDO', pdf, font)
+    expect(name.dig('preferences', 'font_size')).to be >= 6
   end
 
   it 'refuses an unmeasured A5 order instead of reusing the A4 order coordinates' do

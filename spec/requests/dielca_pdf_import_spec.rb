@@ -672,6 +672,67 @@ RSpec.describe 'DIELCA original BC PDF API' do
     end
   end
 
+  context 'with a native automatic date for an existing pending shipment' do
+    let(:bytes) do
+      pdf = HexaPDF::Document.new
+      page = pdf.pages.add([0, 0, 595.28, 841.89])
+      canvas = page.canvas.font('Helvetica', size: 7)
+      canvas.text('RECIBÍ CONFORME', at: [33.17, 116])
+      canvas.text('Nombre / cargo:', at: [33.17, 104])
+      canvas.text('DNI:', at: [33.17, 92])
+      canvas.text('Fecha:', at: [33.17, 80])
+      StringIO.new.tap { |io| pdf.write(io) }.string
+    end
+
+    [
+      ['2026-10-29 10:26:30 UTC', '29/10/2026 10:26:30'],
+      ['2026-07-15 09:26:30 UTC', '15/07/2026 10:26:30']
+    ].each do |instant, expected|
+      it "fills a readonly date at completion and renders Canary time for #{instant}" do
+        account.update!(timezone: 'Atlantic/Canary')
+        import(signer_mode: 'free', authorized_signers: '[]', reportId: '50000', documentType: 'PostedShipment')
+        expect(response).to have_http_status(:created)
+        record = Dielca::PdfImport.find_by!(account:, request_id:)
+        fields = record.submission.template.fields.deep_dup
+        timestamp = fields.find { |field| field.dig('preferences', 'dielca_signing_timestamp') }
+        timestamp.merge!('type' => 'date', 'readonly' => true, 'required' => false, 'default_value' => '{{date}}')
+        timestamp['preferences'].delete('dielca_signing_timestamp')
+        timestamp['preferences']['format'] = 'DD/MM/YYYY HH:mm:ss'
+        record.submission.template.update!(fields:)
+        confirm_signing(record, signer_name: 'Persona Demo')
+        expect(response).to have_http_status(:ok)
+        signature = fields.find { |field| field['type'] == 'signature' }
+        image = Vips::Image.black(180, 70).new_from_image([255, 255, 255])
+        png = image.draw_line([0, 0, 0], 10, 50, 45, 15).draw_line([0, 0, 0], 45, 15, 160, 55).pngsave_buffer
+        record.submitter.attachments.attach(io: StringIO.new(png), filename: 'fictitious-signature.png',
+                                            content_type: 'image/png')
+        drawing = record.submitter.attachments.last
+        put submit_form_path(slug: record.submitter.slug), params: {
+          completed: 'true', values: { signature['uuid'] => drawing.uuid, timestamp['uuid'] => '2000-01-01T00:00:00Z' }
+        }
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(record.submitter.reload.completed_at).to be_nil
+        travel_to Time.parse(instant) do
+          put submit_form_path(slug: record.submitter.slug), params: {
+            completed: 'true', timezone: 'Asia/Tokyo', values: { signature['uuid'] => drawing.uuid }
+          }
+          expect(response).to have_http_status(:ok)
+        end
+        submitter = record.submitter.reload
+        value = submitter.values.fetch(timestamp['uuid'])
+        expect(Time.iso8601(value)).to eq(submitter.completed_at)
+        travel_to Time.parse(instant) + 3.days do
+          result = Submissions::GenerateResultAttachments.generate_pdfs(submitter).values.first
+          result_io = StringIO.new
+          result.write(result_io)
+          parsed = Pdfium::Document.open_bytes(result_io.string)
+          expect(parsed.get_page(0).text).to include(expected)
+          parsed.close
+        end
+      end
+    end
+  end
+
   it 'rejects unknown reports with a clear portal error and creates no unfinished submission' do
     layout # Materialize the configured layout before checking import side effects.
     expect do
