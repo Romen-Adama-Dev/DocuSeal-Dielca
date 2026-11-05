@@ -92,6 +92,26 @@ RSpec.describe 'Authentik OIDC' do
       expect(User.find_by(email: 'consola@dielca.com')).to be_present
     end
 
+    it 'drops a previous admin session when another identity is rejected' do
+      login_with(groups: ['Admins'], email: 'consola@dielca.com')
+      get '/templates'
+      expect(response).to have_http_status(:ok)
+
+      login_with(groups: ['DIELCA/Delegaciones/El Sebadal'], email: 'otro@dielca.com')
+      expect(response).to redirect_to(new_user_session_path)
+      get '/templates'
+      expect(response).to redirect_to(new_user_session_path)
+    end
+
+    it 'drops a previous admin session when a business role signs in' do
+      login_with(groups: ['Admins'], email: 'consola@dielca.com')
+      login_with(groups: ["#{prefix}Reparto"])
+
+      expect(response).to redirect_to(dielca_portal_path)
+      get '/templates'
+      expect(response).to redirect_to(new_user_session_path)
+    end
+
     it 'rejects users without a console or business group' do
       login_with(groups: ['DIELCA/Delegaciones/El Sebadal'])
 

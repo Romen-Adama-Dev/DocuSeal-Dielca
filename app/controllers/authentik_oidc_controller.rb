@@ -31,6 +31,8 @@ class AuthentikOidcController < ApplicationController
     return head :not_found unless oidc_enabled?
 
     oidc_session = session.delete(:docuseal_oidc) || {}
+    # A new Authentik identity must never inherit the previous portal session.
+    sign_out_previous_session!
     validate_callback!(oidc_session)
     claims = oidc.claims_for(
       code: params.require(:code),
@@ -138,7 +140,13 @@ class AuthentikOidcController < ApplicationController
     [given_name.presence || full_name, family_name]
   end
 
+  def sign_out_previous_session!
+    sign_out(:user) if user_signed_in?
+    session.delete(Dielca::BusinessSession::KEY)
+  end
+
   def oidc_failure(error)
+    sign_out_previous_session!
     Rails.logger.warn("Authentik OIDC login failed: #{error.class}")
     redirect_to new_user_session_path, alert: 'No se pudo iniciar sesión con DIELCA.'
   end
