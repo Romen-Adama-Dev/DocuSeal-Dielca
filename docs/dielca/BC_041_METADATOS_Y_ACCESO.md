@@ -62,6 +62,24 @@ consulta de grupos vigentes, revocación y pruebas por URL directa. Las operacio
 humanas no implementadas en el conector se deniegan. La credencial del conector
 identifica un servicio, nunca al empleado.
 
+## Sesión de negocio sin documentos (inicio de sesión de roles de Firmas)
+
+Los usuarios de `DIELCA/FirmasInformes/ElSebadal/{Admins,Mostrador,Reparto}` que
+no pertenecen a la allowlist de consola (`DOCUSEAL_OIDC_ALLOWED_GROUPS`) ya pueden
+iniciar sesión con Authentik. Reciben una sesión de negocio (`Dielca::BusinessSession`,
+8 horas) y llegan a `/portal`, que solo muestra su nombre, su perfil y
+"No tienes documentos disponibles", con botón de cierre de sesión.
+
+- No se crea ni se inicia sesión con un usuario nativo de DocuSeal: plantillas,
+  envíos, ajustes y descargas siguen redirigiendo al inicio de sesión.
+- La allowlist nativa no cambia y sigue sin admitir grupos `DIELCA/FirmasInformes/`.
+- Quien esté en un grupo de consola entra en la consola como antes, aunque tenga
+  además un rol de negocio.
+- Sin grupo de consola ni de Firmas, o con dominio no permitido: rechazado.
+- Los grupos se toman del token en el login; retirar el grupo surte efecto en el
+  siguiente inicio de sesión o al caducar la sesión. Los listados por tipo/almacén
+  se añadirán a `/portal` aplicando `Dielca::DocumentAccess`.
+
 ## Configuración privada del servidor
 
 Ambos repositorios aceptan:

@@ -37,7 +37,14 @@ class AuthentikOidcController < ApplicationController
       code_verifier: oidc_session.fetch('verifier'),
       nonce: oidc_session.fetch('nonce')
     )
-    user = find_or_provision_user!(claims)
+    email = permitted_email!(claims)
+
+    unless Dielca::NativeConsoleAccess.allowed?(claims['groups'], allowed_console_groups)
+      return start_business_session!(claims, email)
+    end
+
+    user = find_or_provision_user!(claims, email)
+    session.delete(Dielca::BusinessSession::KEY)
     sign_in(user)
 
     redirect_to root_path, notice: 'Sesión iniciada con DIELCA.'
@@ -67,14 +74,33 @@ class AuthentikOidcController < ApplicationController
     raise AuthentikOidc::Error, 'OIDC state was invalid'
   end
 
-  def find_or_provision_user!(claims)
+  def permitted_email!(claims)
     email = claims['email'].to_s.strip.downcase
     domains = ENV.fetch('DOCUSEAL_OIDC_ALLOWED_DOMAINS', 'dielca.com').split(',').map { |item| item.strip.downcase }
     domain = email.split('@', 2).last
     raise AuthentikOidc::Error, 'OIDC email is not permitted' if email.blank? || !domains.include?(domain)
 
-    allowed_groups = ENV.fetch('DOCUSEAL_OIDC_ALLOWED_GROUPS', 'Admins').split(',').map(&:strip).reject(&:blank?)
-    unless Dielca::NativeConsoleAccess.allowed?(claims['groups'], allowed_groups)
+    email
+  end
+
+  def allowed_console_groups
+    ENV.fetch('DOCUSEAL_OIDC_ALLOWED_GROUPS', 'Admins').split(',').map(&:strip).compact_blank
+  end
+
+  # Business roles get a login-only session: no native user is created or signed in.
+  def start_business_session!(claims, email)
+    role = Dielca::BusinessSession.role_for(claims['groups'])
+    raise AuthentikOidc::Error, 'OIDC user is not in an allowed group' unless role
+
+    reset_session
+    session[Dielca::BusinessSession::KEY] =
+      Dielca::BusinessSession.build(email:, name: claims['name'].to_s.squish, role:)
+    redirect_to dielca_portal_path, notice: 'Sesión iniciada con DIELCA.'
+  end
+
+  def find_or_provision_user!(claims, email = permitted_email!(claims))
+    # Defense in depth: business groups never provision a native user.
+    unless Dielca::NativeConsoleAccess.allowed?(claims['groups'], allowed_console_groups)
       raise AuthentikOidc::Error, 'OIDC user is not in an allowed group'
     end
 

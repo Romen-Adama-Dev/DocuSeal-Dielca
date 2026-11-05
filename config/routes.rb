@@ -19,6 +19,8 @@ Rails.application.routes.draw do
 
   get 'auth/authentik' => 'authentik_oidc#new', as: :authentik_oidc
   get 'auth/authentik/callback' => 'authentik_oidc#create', as: :authentik_oidc_callback
+  get 'portal' => 'dielca/portal#show', as: :dielca_portal
+  delete 'portal/session' => 'dielca/portal#destroy', as: :dielca_portal_session
 
   devise_for :users, path: '/', only: %i[sessions passwords],
                      controllers: { sessions: 'sessions', passwords: 'passwords' }
