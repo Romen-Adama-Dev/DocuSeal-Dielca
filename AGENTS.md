@@ -51,3 +51,20 @@ verificar después. No modificar PDFs firmados, auditorías ni envíos completad
 Sin push ni despliegue automático. Mantener atribución y obligaciones AGPLv3.
 El fork DIELCA es público: no incluir PDFs reales, clientes, firmas, secretos,
 bases de datos ni backups en Git, pruebas o logs. Usar muestras ficticias.
+
+
+## Grupos de Firmas e Informes
+
+Para cambios de acceso, leer docs/dielca/CONTEXTO_GRUPOS_EL_SEBADAL.md. El ámbito
+actual es El Sebadal, con grupos DIELCA/FirmasInformes/ElSebadal/{Admins,Mostrador,Reparto}.
+Son roles de aplicación, no administración global de Authentik. Reutilizar las
+cuentas del directorio y no enviar invitaciones, correos o avisos de provisión.
+No ampliar la allowlist OIDC a Mostrador/Reparto mientras el portal les cree
+usuarios admin nativos sin controles de autorización por documento/delegación.
+Guardar censos y asignaciones nominales fuera de Git.
+
+BC 0.4.1.0 aporta locationCode inmutable. El almacén de El Sebadal ya está
+confirmado y guardado fuera de Git; no volver a pedirlo ni copiarlo al repo.
+Leer docs/dielca/BC_041_METADATOS_Y_ACCESO.md para metadatos, gates, pruebas y
+límites pendientes de integración. No confundir política preparada con acceso
+por documento activo ni compilación de BC con publicación en Pruebas.

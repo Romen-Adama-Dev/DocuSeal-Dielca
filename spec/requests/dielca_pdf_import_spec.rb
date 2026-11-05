@@ -57,6 +57,35 @@ RSpec.describe 'DIELCA original BC PDF API' do
     file&.close!
   end
 
+  it 'preserves BC warehouse and routing metadata and refuses scope changes on replay' do
+    scope = { location_code: 'SITE TEST', channel: 'Delivery', route_id: 'ROUTE-TEST',
+              route_description: 'Ruta ficticia', requested_by: 'ACTOR-TEST' }
+    import(**scope)
+    expect(response).to have_http_status(:created)
+    record = Dielca::PdfImport.find_by!(account:, request_id:)
+    expect(record.submitter.metadata).to include(scope.stringify_keys)
+    expect { import(**scope) }.not_to change(Submission, :count)
+    expect(response).to have_http_status(:created)
+    expect { import(**scope.merge(location_code: 'OTHER SITE')) }.not_to change(Submission, :count)
+    expect(response).to have_http_status(:conflict)
+    expect(record.submitter.reload.metadata['location_code']).to eq('SITE TEST')
+  end
+
+  it 'keeps empty scope metadata compatible with legacy imports' do
+    import
+    id = response.parsed_body['submission_id']
+    import(location_code: '', channel: '', route_id: '', route_description: '', requested_by: '')
+    expect(response).to have_http_status(:created)
+    expect(response.parsed_body['submission_id']).to eq(id)
+  end
+
+  it 'rejects malformed scope metadata before creating any submission' do
+    [{ location_code: ['SITE'] }, { channel: 'forged' }, { route_id: "bad\ncode" }].each do |scope|
+      expect { import(**scope) }.not_to change(Submission, :count)
+      expect(response.parsed_body.dig('error', 'code')).to eq('BC_SCOPE_METADATA_INVALID')
+    end
+  end
+
   it 'persists BC 0.3 customer and authorized identity types' do
     import(customer: customer_data.merge(id_type: 'CIF').to_json,
            authorized_signers: signers.map { |s| s.merge(id_document_type: 'NIE') }.to_json)

@@ -10,7 +10,7 @@ module Api
           load_layout!
           render json: { version: 1, mode: 'bc_pdf', idempotent: true,
                          authorized_signer_selection: true, customer_summary: true, free_signing: true,
-                         personal_identity_validation: true, copy_email_confirmation: true, report_layouts: true,
+                         bc_scope_metadata: true, personal_identity_validation: true, copy_email_confirmation: true, report_layouts: true,
                          layout_template_id: @layout.id, max_bytes: ::Dielca::PdfSubmission::MAX_BYTES,
                          max_pages: ::Dielca::PdfSubmission::MAX_PAGES }
         end

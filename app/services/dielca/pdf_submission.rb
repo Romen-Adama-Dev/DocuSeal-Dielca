@@ -142,6 +142,22 @@ module Dielca
                     'bc_original_pdf' => true }
       @metadata['report_id'] = @report_id if @report_id.present?
       @metadata['document_type'] = @document_type if @document_type.present?
+      # Trusted connector metadata, never read from the public signing form.
+      # Preserve exact BC codes; empty optional fields keep legacy fingerprints.
+      { location_code: 20, channel: 20, route_id: 100,
+        route_description: 250, requested_by: 200 }.each do |key, max_length|
+        value = @params[key]
+        next if value.nil? || value == ''
+
+        unless value.is_a?(String) && value.length <= max_length && !value.match?(/[[:cntrl:]]/)
+          raise Error.new('BC_SCOPE_METADATA_INVALID')
+        end
+        if key == :channel && !%w[Counter Delivery].include?(value)
+          raise Error.new('BC_SCOPE_METADATA_INVALID')
+        end
+
+        @metadata[key.to_s] = value
+      end
       number = @params[:document_number] || @params[:documentNumber]
       if number
         raise Error.new('METADATA_INVALID') unless number.is_a?(String) && number.length <= 100 && number.exclude?("\0")

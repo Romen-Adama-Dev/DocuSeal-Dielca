@@ -74,8 +74,7 @@ class AuthentikOidcController < ApplicationController
     raise AuthentikOidc::Error, 'OIDC email is not permitted' if email.blank? || !domains.include?(domain)
 
     allowed_groups = ENV.fetch('DOCUSEAL_OIDC_ALLOWED_GROUPS', 'Admins').split(',').map(&:strip).reject(&:blank?)
-    user_groups = Array(claims['groups']).map(&:to_s)
-    if allowed_groups.present? && (allowed_groups & user_groups).empty?
+    unless Dielca::NativeConsoleAccess.allowed?(claims['groups'], allowed_groups)
       raise AuthentikOidc::Error, 'OIDC user is not in an allowed group'
     end
 

@@ -13,3 +13,7 @@ Rails.application.config.to_prepare do
   generator = Submissions::GenerateResultAttachments.singleton_class
   generator.prepend(Dielca::StampLogo) unless generator.ancestors.include?(Dielca::StampLogo)
 end
+
+# BC routing/employee provenance is private operational data, not request logs.
+Rails.application.config.filter_parameters += %i[location_code locationCode channel route_id routeId
+                                                 route_description routeDescription requested_by requestedBy]
