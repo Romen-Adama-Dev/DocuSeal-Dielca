@@ -53,9 +53,12 @@ module Dielca
       return false unless %w[Counter Delivery].include?(metadata['channel'])
       return (READ + [:prepare]).include?(action) if role == :mostrador
 
-      # No carrier/route identity mapping has been approved. Fail closed even
-      # for a Delivery shipment; requested_by is not an employee login proof.
-      false
+      # Business decision 2026-11-06: no route mapping. Delivery staff see every
+      # Delivery signature of their mapped site and pick the one to sign in the
+      # portal. Read-only: they never prepare, retry, copy or archive.
+      # TODO: narrow to a route/carrier once business defines one.
+      role == :reparto && metadata['channel'] == 'Delivery' &&
+        metadata['document_type'] == 'PostedShipment' && READ.include?(action)
     end
   end
 end

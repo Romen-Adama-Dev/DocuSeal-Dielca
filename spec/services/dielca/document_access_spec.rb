@@ -37,9 +37,21 @@ RSpec.describe Dielca::DocumentAccess do
     end
   end
 
-  it 'denies delivery access until route identity mapping is implemented' do
-    expect(allowed('Reparto')).to be(false)
+  it 'lets delivery staff read and sign every delivery document of their site, nothing else' do
+    expect(allowed('Reparto')).to be(true)
+    expect(allowed('Reparto', metadata, :open_signing)).to be(true)
+    expect(allowed('Reparto', metadata, :download_pdf)).to be(true)
     expect(allowed('Reparto', metadata.merge('channel' => 'Counter'))).to be(false)
+    expect(allowed('Reparto', metadata.merge('location_code' => 'OTHER'))).to be(false)
+    %w[SalesOrder PostedInvoice].each do |type|
+      other = metadata.merge('document_type' => type, 'report_id' => described_class::REPORTS[type])
+      expect(allowed('Reparto', other)).to be(false)
+    end
+    %i[prepare retry copy archive administer].each do |action|
+      expect(allowed('Reparto', metadata, action, 'PendingProcessing')).to be(false)
+      expect(allowed('Reparto', metadata, action)).to be(false)
+    end
+    expect(allowed('Reparto', metadata, :open_signing, 'Signed')).to be(false)
   end
 
   it 'never allows another signature on a completed document or an inconsistent report' do

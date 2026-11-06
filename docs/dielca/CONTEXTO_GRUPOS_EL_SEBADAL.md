@@ -60,8 +60,10 @@ BC, no de un selector libre del navegador. BC 0.4.1.0 aporta `locationCode`
 como almacén inmutable del pedido/albarán/factura al crear la solicitud.
 El código de El Sebadal está confirmado y se guarda exclusivamente en la
 configuración privada del servidor; no volver a solicitarlo ni copiarlo al repo.
-Falta la correspondencia transportista ↔ ruta: Reparto queda denegado incluso
-para albaranes Delivery. Counter incluye recogida en mostrador. Las ofertas
+Decisión 06/11/2026 (provisional, TODO): sin correspondencia transportista ↔ ruta.
+Reparto ve todos los albaranes registrados con canal Delivery de su delegación y
+elige en el portal cuál firmar (solo consulta y abrir firma). El canal lo elige el
+empleado en BC al preparar la firma. Counter incluye recogida en mostrador. Las ofertas
 (SalesQuote) no están soportadas por BC y se deniegan.
 Las solicitudes antiguas con almacén vacío o sin mapeo se reservan al admin
 explícito del ámbito; Mostrador/Reparto no pueden acceder a ellas.
