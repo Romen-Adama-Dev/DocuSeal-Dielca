@@ -6,10 +6,16 @@ module Dielca
     attribute :customer_data, :string, default: -> { {} }
     serialize :authorized_signers, coder: JSON
     serialize :customer_data, coder: JSON
-    validates :signer_mode, inclusion: { in: %w[authorized free] }
+    validates :signer_mode, inclusion: { in: %w[authorized free selectable] }
 
     def free_signing?
-      signer_mode == 'free'
+      signer_mode == 'free' || (signer_mode == 'selectable' && selected_signer_id == 'other')
+    end
+
+    def signer_selection
+      return 'other' if free_signing?
+
+      'authorized' if selected_signer_id.present?
     end
 
     belongs_to :account

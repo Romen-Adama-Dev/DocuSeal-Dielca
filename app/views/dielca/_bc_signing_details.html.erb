@@ -16,15 +16,22 @@
     <div><dt class="text-sm opacity-70">NIF/CIF del cliente</dt><dd><%= customer['vat_registration_no'] %></dd></div>
     <div class="md:col-span-2"><dt class="text-sm opacity-70">Dirección</dt><dd><%= [customer['address'], customer['address2'], [customer['post_code'], customer['city']].compact_blank.join(' '), customer['county'], customer['country_code']].compact_blank.join(', ') %></dd></div>
   </dl>
-  <% if record.free_signing? %>
+  <% if record.signer_mode == 'free' %>
     <p>Escribe tu nombre y tu DNI/NIE personal antes de firmar.</p>
   <% else %>
   <dielca-authorized-signer>
     <%= form_with url: dielca_authorized_signer_path, method: :patch, data: { turbo: false }, class: 'space-y-3' do |form| %>
       <%= form.hidden_field :signing_token, value: submitter.slug %>
-      <%= form.label :authorized_signer_id, 'Persona autorizada que firma', class: 'block font-semibold' %>
+      <%= form.label :authorized_signer_id, 'Persona que firma', class: 'block font-semibold' %>
+      <% choices = record.authorized_signers.map { |s| [[s['name'], s['job_title'].presence].compact.join(' — '), s['id']] } %>
+      <% if record.signer_mode == 'selectable' %>
+        <% choices << ['Otra persona (no está en la lista)', 'other'] %>
+        <% if record.authorized_signers.any? %>
+          <p>Este cliente tiene <%= record.authorized_signers.size %> autorizados. Comprueba la lista antes de elegir «Otra persona».</p>
+        <% end %>
+      <% end %>
       <%= form.select :authorized_signer_id,
-                      record.authorized_signers.map { |s| [[s['name'], s['job_title'].presence].compact.join(' — '), s['id']] },
+                      choices,
                       { include_blank: 'Selecciona una persona', selected: record.selected_signer_id },
                       { required: true, class: 'select select-bordered w-full' } %>
       <%= form.submit 'Rellenar datos', class: 'btn btn-sm', data: { signer_fallback: true } %>
@@ -39,7 +46,11 @@
     </dl>
     <p class="text-sm">Comprueba tus datos y firma el documento.</p>
   <% else %>
-    <p>Selecciona al autorizado para rellenar sus datos y continuar con la firma.</p>
+    <% if record.free_signing? %>
+      <p>Escribe tu nombre y DNI/NIE. La firma quedará pendiente de verificar por Administración.</p>
+    <% else %>
+      <p>Selecciona a la persona que firma para continuar.</p>
+    <% end %>
   <% end %>
   <% end %>
   <% if record.free_signing? || person %>

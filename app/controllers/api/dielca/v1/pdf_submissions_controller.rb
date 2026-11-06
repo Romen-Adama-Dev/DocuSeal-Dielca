@@ -9,7 +9,8 @@ module Api
         def capabilities
           load_layout!
           render json: { version: 1, mode: 'bc_pdf', idempotent: true,
-                         authorized_signer_selection: true, customer_summary: true, free_signing: true,
+                         selectable_signing: true, authorized_signer_selection: true,
+                         customer_summary: true, free_signing: true,
                          bc_scope_metadata: true, personal_identity_validation: true, copy_email_confirmation: true, report_layouts: true,
                          layout_template_id: @layout.id, max_bytes: ::Dielca::PdfSubmission::MAX_BYTES,
                          max_pages: ::Dielca::PdfSubmission::MAX_PAGES }
@@ -29,7 +30,9 @@ module Api
         def selection
           record = ::Dielca::PdfImport.find_by!(account: current_account, request_id: params[:request_id])
           authorize!(:read, record.submission)
-          render json: { request_id: record.request_id, selected_signer_id: record.selected_signer_id,
+          selected_id = record.selected_signer_id unless record.free_signing?
+          render json: { request_id: record.request_id, selected_signer_id: selected_id,
+                         signer_selection: record.signer_selection,
                          signer_name: record.submitter.values[record.name_field_uuid],
                          signer_id_document_no: record.submitter.values[record.id_field_uuid],
                          copy_email: record.submitter.metadata['dielca_copy_email'] }

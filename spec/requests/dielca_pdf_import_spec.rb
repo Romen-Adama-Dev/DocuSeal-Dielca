@@ -250,7 +250,7 @@ RSpec.describe 'DIELCA original BC PDF API' do
     get submit_form_path(slug: record.submitter.slug)
     expect(response).to have_http_status(:ok)
     expect(response.body).to include('Datos del cliente', 'Cliente ficticio', 'NIF empresa ficticio')
-    expect(response.body).to include('Persona autorizada que firma', 'Persona ficticia Uno', 'Persona ficticia Dos')
+    expect(response.body).to include('Persona que firma', 'Persona ficticia Uno', 'Persona ficticia Dos')
     expect(response.body).not_to include('<submission-form')
   end
 
@@ -845,6 +845,97 @@ RSpec.describe 'DIELCA original BC PDF API' do
       expect(response.parsed_body.dig('error', 'code')).to eq('PDF_INVALID')
     end
   end
+
+  context 'with the unified signer selector' do
+    before { import(signer_mode: 'selectable') }
+
+    let(:record) { Dielca::PdfImport.find_by!(account:, request_id:) }
+
+    it 'offers two authorized people plus other and warns before choosing' do
+      get submit_form_path(slug: record.submitter.slug)
+      expect(response.body).to include('Persona ficticia Uno', 'Persona ficticia Dos',
+                                       'Otra persona (no está en la lista)', 'Este cliente tiene 2 autorizados')
+      expect(record.submission.template.fields.select { |f| f['type'] == 'text' })
+        .to all(include('readonly' => true))
+      select_person(record)
+      expect(response).to have_http_status(:ok)
+      expect(record.submitter.reload.values[record.name_field_uuid]).to eq(signers.first[:name])
+      expect(record.submitter.metadata['signer_selection']).to eq('authorized')
+    end
+
+    it 'completes an explicit other selection and reports it separately from authorized people' do
+      select_person(record, 'other')
+      expect(response).to have_http_status(:ok)
+      confirm_signing(record)
+      expect(response).to have_http_status(:ok)
+      signature = record.submission.template.fields.find { |f| f['type'] == 'signature' }['uuid']
+      put submit_form_path(slug: record.submitter.slug), params: {
+        completed: 'true', values: { signature => 'test-signature' }
+      }
+      expect(response).to have_http_status(:ok)
+      expect(record.submitter.reload.completed_at).to be_present
+      expect(record.submitter.name).to eq('Persona presente ficticia')
+      get "/api/dielca/v1/pdf_imports/#{request_id}", headers: headers
+      expect(response.parsed_body).to include('signer_selection' => 'other', 'selected_signer_id' => nil,
+                                              'signer_id_document_no' => '12345678Z')
+    end
+
+    it 'rejects other with a wrong control letter and keeps the form incomplete' do
+      select_person(record, 'other')
+      confirm_signing(record, personal_id: '12345678A')
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(record.submitter.reload.completed_at).to be_nil
+      expect(record.submitter.metadata['dielca_copy_email']).to be_nil
+    end
+
+    it 'clears identity signature and copy confirmation when switching in either direction' do
+      select_person(record)
+      confirm_signing(record)
+      signature = record.submission.template.fields.find { |f| f['type'] == 'signature' }['uuid']
+      record.submitter.reload.update!(values: record.submitter.values.merge(signature => 'old-signature'))
+      select_person(record, 'other')
+      expect(record.submitter.reload.values).to be_empty
+      expect(record.submitter.metadata).not_to have_key('authorized_person_id')
+      expect(record.submitter.metadata).not_to have_key('dielca_copy_email')
+      confirm_signing(record)
+      select_person(record, signers.last[:id])
+      expect(record.reload.free_signing?).to be(false)
+      expect(record.submitter.reload.values[record.name_field_uuid]).to eq(signers.last[:name])
+      expect(record.submitter.metadata['signer_selection']).to eq('authorized')
+      expect(record.submitter.metadata).not_to have_key('dielca_copy_email')
+    end
+
+    it 'requires a selection and never silently switches an authorized person to other' do
+      confirm_signing(record)
+      expect(response).to have_http_status(:unprocessable_content)
+      select_person(record)
+      confirm_signing(record, signer_name: 'Nombre diferente', personal_id: '00000000T')
+      expect(record.reload.selected_signer_id).to eq(signers.first[:id])
+      expect(record.submitter.reload.values[record.id_field_uuid]).to eq('12345678Z')
+    end
+
+    it 'does not reinterpret an idempotent legacy request as selectable' do
+      # The mode is part of the new fingerprint; legacy fingerprints remain unchanged.
+      import(signer_mode: 'authorized')
+      expect(response).to have_http_status(:conflict)
+      expect(record.reload.signer_mode).to eq('selectable')
+    end
+
+    context 'without authorized people' do
+      let(:signers) { [] }
+
+      it 'offers other as its only nonblank choice and accepts a valid identity' do
+        get submit_form_path(slug: record.submitter.slug)
+        html = Nokogiri::HTML(response.body)
+        choices = html.css('select[name="authorized_signer_id"] option').reject { |option| option['value'].blank? }
+        expect(choices.pluck('value')).to eq(['other'])
+        select_person(record, 'other')
+        confirm_signing(record)
+        expect(response).to have_http_status(:ok)
+        expect(record.reload.free_signing?).to be(true)
+      end
+    end
+  end
 end
 
 RSpec.describe 'DIELCA BC customer identity display', type: :view do
@@ -853,7 +944,8 @@ RSpec.describe 'DIELCA BC customer identity display', type: :view do
     { 'CIF' => 'Empresa', 'DNI' => 'Persona física', 'NIE' => 'Persona física',
       'NIF' => 'Persona física', 'None' => 'Tipo de identificación no indicado' }.each do |type, label|
       record = double(customer_data: customer.merge('id_type' => type), authorized_signers: [],
-                      selected_signer_id: nil, free_signing?: true, name_field_uuid: 'name', id_field_uuid: 'id')
+                      selected_signer_id: nil, signer_mode: 'free', free_signing?: true,
+                      name_field_uuid: 'name', id_field_uuid: 'id')
       render partial: 'dielca/bc_signing_details', locals: { record:, submitter: double(values: {}, metadata: {}, slug: 'fictitious') }
       expect(rendered).to include('Cliente ficticio', label)
       expect(rendered).not_to include('name="customer', 'name="id_type')

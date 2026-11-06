@@ -107,7 +107,7 @@ module Dielca
 
         area = page_area(box, local, document_uuid:, page:)
         { 'uuid' => SecureRandom.uuid, 'name' => name, 'type' => type, 'required' => !timestamp,
-          'readonly' => timestamp || (type == 'text' && signer_mode == 'authorized'), 'submitter_uuid' => role_uuid,
+          'readonly' => timestamp || (type == 'text' && signer_mode != 'free'), 'submitter_uuid' => role_uuid,
           'areas' => [area], 'preferences' => preferences(size, type, timestamp, settings) }
       end
       attach_logo!(result, profile, box, document_uuid:, page:)

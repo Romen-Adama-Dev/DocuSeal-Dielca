@@ -30,7 +30,7 @@ module Dielca
         end
 
         { 'uuid' => SecureRandom.uuid, 'name' => name, 'type' => type,
-          'submitter_uuid' => role_uuid, 'required' => true, 'readonly' => type == 'text' && signer_mode == 'authorized',
+          'submitter_uuid' => role_uuid, 'required' => true, 'readonly' => type == 'text' && signer_mode != 'free',
           'preferences' => {}, 'areas' => areas }
       end
     end

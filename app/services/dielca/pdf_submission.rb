@@ -132,14 +132,12 @@ module Dielca
         raise Error.new('DOCUMENT_TYPE_INVALID')
       end
       @report_profile = ReportLayout.load(report_id: @report_id, document_type: @document_type)
-      @signer_mode = @signers.empty? ? 'free' : 'authorized'
-      if @params[:signer_mode].present? && @params[:signer_mode] != @signer_mode
-        raise Error.new('SIGNER_MODE_INVALID')
-      end
+      @signer_mode = validated_signer_mode!
       @metadata = { 'request_id' => @request_id, 'pdf_hash' => @pdf_hash,
                     'order_number' => limited_string!(:order_number, 100),
                     'customer' => @customer['name'], 'customer_vat_registration_no' => @customer['vat_registration_no'],
                     'bc_original_pdf' => true }
+      @metadata['signer_mode'] = 'selectable' if @signer_mode == 'selectable'
       @metadata['report_id'] = @report_id if @report_id.present?
       @metadata['document_type'] = @document_type if @document_type.present?
       # Trusted connector metadata, never read from the public signing form.
@@ -167,6 +165,14 @@ module Dielca
       @fingerprint = Digest::SHA256.hexdigest(JSON.generate(
         [@pdf_hash, @layout.id, @document_name, @metadata, @customer, @signers]
       ))
+    end
+
+    def validated_signer_mode!
+      legacy_mode = @signers.empty? ? 'free' : 'authorized'
+      mode = @params[:signer_mode].presence || legacy_mode
+      raise Error.new('SIGNER_MODE_INVALID') unless ['selectable', legacy_mode].include?(mode)
+
+      mode
     end
 
     def validated_customer!

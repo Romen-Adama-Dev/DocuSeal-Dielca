@@ -105,3 +105,7 @@ Unless otherwise noted, all files © 2023-2026 DocuSeal LLC.
 - [Signature Maker](https://www.docuseal.com/online-signature)
 - [Sign Document Online](https://www.docuseal.com/sign-documents-online)
 - [Fill PDF Online](https://www.docuseal.com/fill-pdf)
+
+### Verificación de firmantes DIELCA
+
+Contrato, compatibilidad y despliegue: [docs/dielca/VERIFICACION_FIRMANTES.md](docs/dielca/VERIFICACION_FIRMANTES.md).

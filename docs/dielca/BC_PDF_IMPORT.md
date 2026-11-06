@@ -401,3 +401,8 @@ pedido A5 queda pendiente de referencia y se rechaza claramente. El perfil
 aplicado se conserva como report_layout_id en los metadatos de la importación.
 Se revisó el último albarán A4 y se contuvo su firma dentro de la franja sin
 alterar el perfil A5 ni los documentos ya firmados.
+
+## Selector único
+
+Ver [VERIFICACION_FIRMANTES.md](VERIFICACION_FIRMANTES.md) para el modo `selectable`,
+su respuesta de selección y la compatibilidad con envíos anteriores.
