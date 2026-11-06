@@ -81,7 +81,8 @@ RSpec.describe Dielca::ReportLayout do
 
   it 'keeps independent named profiles and resolves report/type selectors to the same geometry' do
     config = described_class.configuration
-    expect(config.fetch('profiles').keys).to match_array(%w[50000_A4 50000_A5 50001_A4 50001_A5 50002_A4 50000_A4_stacked 50002_A4_stacked 50000_A5_customer])
+    expect(config.fetch('profiles').keys).to match_array(%w[50000_A4 50000_A5 50001_A4 50001_A5 50002_A4 50000_A4_stacked 50002_A4_stacked 50000_A5_customer
+                                                                     50002_A4_firma_cliente 50000_A5_gbd])
     { '50000' => 'PostedShipment', '50001' => 'PostedInvoice', '50002' => 'SalesOrder' }.each do |report, type|
       config['reports'][report]['paper_sizes'].each_key do |paper|
         size = described_class::PAPER_SIZES.fetch(paper)
@@ -103,6 +104,30 @@ RSpec.describe Dielca::ReportLayout do
     ambiguous = base.merge('variants' => base['variants'] * 2)
     expect { described_class.select_variant(ambiguous, objects) }
       .to raise_error(Dielca::PdfSubmission::Error) { |error| expect(error.code).to eq('REPORT_LAYOUT_NOT_CONFIGURED') }
+  end
+
+  it 'places the original BC order and shipment designs inside their own free area' do
+    text = ->(content, x, y) { Pdfium::TextObject.new(content, x, y, 0.2, 0.01, 7) }
+    order = described_class.load(report_id: '50002', document_type: 'SalesOrder')
+    order_objects = [text.call('Firma (Cliente)', 0.076, 0.775),
+                     text.call('IMPORTE RECIBIDO COMO ENTREGA A CUENTA DEL PRESENTE PEDIDO:', 0.077, 0.878)]
+    shipment_objects = [text.call('El Responsable de los envases usados, para su correcta', 0.311, 0.696)]
+    {
+      [order, [595.28, 841.89], order_objects] => ['50002_A4_firma_cliente', 0.07, 0.68, 0.79, 0.873],
+      [shipment, [595.28, 419.53], shipment_objects] => ['50000_A5_gbd', 0.05, 0.29, 0.69, 0.92]
+    }.each do |(config, size, objects), (id, left, right, top, bottom)|
+      selected = described_class.for_page(config, size, text_objects: objects)
+      expect(selected['id']).to eq(id)
+      areas = fields(selected).flat_map { |field| field['areas'] }
+      areas.each do |area|
+        expect(area['x']).to be >= left
+        expect(area['x'] + area['w']).to be <= right
+        expect(area['y']).to be >= top
+        expect(area['y'] + area['h']).to be <= bottom
+      end
+      expect(areas.combination(2).any? { |first, second| described_class.overlap?(first, second) }).to be(false)
+    end
+    expect(described_class.for_page(order, [595.28, 841.89], text_objects: order_objects.first(1))['id']).to eq('50002_A4')
   end
 
   it 'aligns the edited A4 shipment rows and keeps its signature inside the receipt box' do

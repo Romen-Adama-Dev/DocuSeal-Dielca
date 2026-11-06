@@ -39,6 +39,12 @@
             {"text": "FIRMA DEL CLIENTE", "x": 0.04, "y": 0.785, "w": 0.26, "h": 0.03},
             {"text": "Nombre:", "x": 0.04, "y": 0.82, "w": 0.065, "h": 0.03}
           ]
+        },
+        {
+          "profile_id": "50000_A5_gbd",
+          "anchors": [
+            {"text": "Responsable de los envases", "x": 0.28, "y": 0.68, "w": 0.1, "h": 0.05}
+          ]
         }
       ]
     },
@@ -78,6 +84,13 @@
             {"text": "Nombre:", "x": 0.35, "y": 0.858, "w": 0.08, "h": 0.018},
             {"text": "DNI:", "x": 0.35, "y": 0.875, "w": 0.08, "h": 0.018}
           ]
+        },
+        {
+          "profile_id": "50002_A4_firma_cliente",
+          "anchors": [
+            {"text": "Firma (Cliente)", "x": 0.06, "y": 0.765, "w": 0.08, "h": 0.025},
+            {"text": "IMPORTE RECIBIDO", "x": 0.06, "y": 0.87, "w": 0.05, "h": 0.025}
+          ]
         }
       ]
     },
@@ -111,6 +124,28 @@
         "Firma": {"x": 0.21, "y": 0.8475, "w": 0.08, "h": 0.0449, "font_size": 8}
       },
       "signed_at": {"x": 0.103, "y": 0.8705229443529, "w": 0.096, "h": 0.0219, "font_size": 5, "format": "single_line"}
+    },
+    "50002_A4_firma_cliente": {
+      "id": "50002_A4_firma_cliente",
+      "box": {"x": 0, "y": 0, "w": 1, "h": 1},
+      "fields": {
+        "Nombre": {"x": 0.42, "y": 0.815, "w": 0.24, "h": 0.014, "font_size": 7},
+        "DNI/NIF": {"x": 0.42, "y": 0.832, "w": 0.24, "h": 0.014, "font_size": 7},
+        "Firma": {"x": 0.09, "y": 0.815, "w": 0.3, "h": 0.045, "font_size": 8}
+      },
+      "logo": {"x": 0.09, "y": 0.794, "w": 0.16, "h": 0.018},
+      "signed_at": {"x": 0.42, "y": 0.849, "w": 0.24, "h": 0.014, "font_size": 6, "format": "single_line"}
+    },
+    "50000_A5_gbd": {
+      "id": "50000_A5_gbd",
+      "box": {"x": 0, "y": 0, "w": 1, "h": 1},
+      "fields": {
+        "Nombre": {"x": 0.06, "y": 0.82, "w": 0.22, "h": 0.024, "font_size": 7},
+        "DNI/NIF": {"x": 0.06, "y": 0.848, "w": 0.22, "h": 0.022, "font_size": 6},
+        "Firma": {"x": 0.06, "y": 0.735, "w": 0.22, "h": 0.075, "font_size": 8}
+      },
+      "logo": {"x": 0.06, "y": 0.7, "w": 0.15, "h": 0.028},
+      "signed_at": {"x": 0.06, "y": 0.874, "w": 0.22, "h": 0.022, "font_size": 5, "format": "single_line"}
     }
   },
   "reports": {
